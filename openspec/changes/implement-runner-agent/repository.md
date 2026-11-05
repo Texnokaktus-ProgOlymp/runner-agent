@@ -1,6 +1,18 @@
 # Структура репозитория и сборка
 
-Статус: требования MVP согласованы 2 октября 2026 года. Состав проектов, настройки C#/.NET, CPM без плавающих версий и платформа MVP зафиксированы; оставшиеся инженерные предложения по каркасу и CI разработчик выбирает и проверяет при реализации без отдельного согласования каждой детали. Физически созданы документация, инструкции агентов и OpenSpec; .NET-приложение отсутствует.
+Статус: реализация MVP начата 5 ноября 2026 года. Созданы host, `.Tests`, `.IntegrationTests` для entry point/HTTP pipeline, MSBuild/CPM, tool manifest, smoke и базовый workflow; production Dockerfile, API, storage и sandbox остаются планом. Требования MVP и платформа linux/amd64 сохраняются. Версии и проверки каркаса приведены ниже и в корневом README.
+
+## Фактический каркас
+
+SDK 10.0.403/`latestPatch` без preview; `net10.0`, C# 14, nullable/implicit usings, deterministic build, встроенные analyzers `10.0-recommended`, warnings as errors. Platform 2026.9.19.2 получает OpenTelemetry 2026.9.19.15 транзитивно. NUnit 4.6.1, NUnit3TestAdapter 6.3.1/MTP 2.4.1, NSubstitute 6.2.0, CodeCoverage 18.11.2, TrxReport 2.4.1 и ReportGenerator 5.5.11 совместно проходят Release build/test. Вложенные props явно импортируют корневой; тестовые пакеты не входят в production. Версии — в CPM/tool manifest, без локальных overrides.
+
+`NuGet.Config` фиксирует package source mapping: `Texnokaktus.ProgOlymp.*` — GitHub Packages, остальные — nuget.org; аудит — nuget.org. При чистом cache нужны credentials чтения двух GitHub Packages, передаваемые через `NuGetPackageSourceCredentials_github` или пользовательскую конфигурацию NuGet. Workflow использует встроенный `GITHUB_TOKEN`, которому репозиторий должен иметь read-доступ к этим пакетам. Credentials не сохраняются в репозитории и доступны только restore/publish шагу.
+
+Базовый workflow уже существует: push master, ubuntu-24.04, checkout 4.2.2, setup-dotnet 4.3.1, upload-artifact 4.6.2. Проверяет Release build, NUnit/MTP с TRX/Cobertura и `scripts/smoke.sh`, сохраняет доступные отчёты даже при падении, публикует coverage summary, retention 3 дня. Информационный AOT job сохраняет лог и не блокирует JIT. GitHub CI/AOT ещё не запускались; origin остаётся Gitea до переноса пользователем. Production Docker/integration/publishing jobs не добавлены.
+
+Фактическое дерево: корневые `.slnx`, global.json, props/CPM, NuGet.Config, gitignore; `.config/dotnet-tools.json`; `.github/workflows/dotnet.yml`; `src/Directory.Build.props` и один host с Program/appsettings/Workspace, локальными Execution-контрактами и CppLanguageProvider; `tests/Directory.Build.props` и `.Tests`; `scripts/smoke.sh`. Следующее дерево остаётся целевым и включает ещё не созданные файлы. В `.IntegrationTests` уже находятся `Tools/CustomWebApplicationFactory.cs`, `SetupBase.cs`, `SetupGlobal.cs` и сценарии startup/configuration/HTTP pipeline через настоящий entry point.
+
+Проверенные команды restore/build/test/publish/run и smoke находятся в [README](../../../README.md#сборка-и-проверки-каркаса). Smoke прошёл на Linux amd64 в runtime-образе `mcr.microsoft.com/dotnet/aspnet:10.0.14`. После обновления WSL Docker Desktop сообщил `CgroupVersion=2`, WSL kernel 6.18.54.1; доступны cpu/memory/pids и требуемые memory/pids-файлы. Полная проверка sandbox выполняется на прототипе, гарантии пока не объявлены подтверждёнными.
 
 Сводные требования MVP и критерии приёмки находятся в [технической спецификации](./README.md). Ещё не согласованные детали этого документа сохраняют статус предложений.
 
@@ -33,7 +45,6 @@
 ├── global.json
 ├── Directory.Build.props
 ├── Directory.Packages.props
-├── .editorconfig
 ├── .gitignore
 ├── .dockerignore
 ├── .config/
@@ -130,7 +141,7 @@ Storage-проверки подтверждают регион подписи к
 
 ## Общие настройки сборки
 
-Согласованы общие `TargetFramework=net10.0`, `LangVersion=14.0`, `Nullable=enable`, `ImplicitUsings=enable`. Конкретные версии SDK/пакетов и остальные предлагаемые настройки таблицы выбираются и проверяются при создании каркаса. Платформа MVP — `linux/amd64`; arm64 добавляется отдельно после проверки isolate и toolchain.
+Согласованы общие `TargetFramework=net10.0`, `LangVersion=14.0`, `Nullable=enable`, `ImplicitUsings=enable`. Версии SDK/пакетов и реализованные настройки каркаса зафиксированы в разделе «Фактический каркас»; таблица описывает их распределение. Платформа MVP — `linux/amd64`; arm64 добавляется отдельно после проверки isolate и toolchain.
 | Файл | Ответственность |
 | --- | --- |
 | `global.json` | Версия .NET SDK 10, политика `rollForward` и `test.runner=Microsoft.Testing.Platform`; единые настройки для локальной разработки и CI |
@@ -141,7 +152,7 @@ Storage-проверки подтверждают регион подписи к
 | `.config/dotnet-tools.json` | Зафиксированная версия ReportGenerator; установка через `dotnet tool restore` |
 | `.csproj` | Тип SDK проекта, его собственные references, protobuf generation и специфические свойства |
 
-Версия установленного .NET SDK выбирается до вычисления `Directory.Build.props`, поэтому она фиксируется в `global.json`. Атрибут `Sdk` (`Microsoft.NET.Sdk.Web` для gRPC host, `Microsoft.NET.Sdk` для тестов) остаётся в `.csproj`. `TargetFramework` и версия C# задаются отдельно от версии SDK. Конкретную patch-версию SDK выбираем при создании рабочего каркаса; `latest`/preview для C# не используем.
+Версия установленного .NET SDK выбирается до вычисления `Directory.Build.props`, поэтому она фиксируется в `global.json`. Атрибут `Sdk` (`Microsoft.NET.Sdk.Web` для gRPC host, `Microsoft.NET.Sdk` для тестов) остаётся в `.csproj`. `TargetFramework` и версия C# задаются отдельно от версии SDK. В каркасе выбран SDK 10.0.403 с rollForward=latestPatch; `latest`/preview для C# не используем.
 
 MSBuild автоматически находит только ближайший `Directory.Build.props`. Поэтому файлы в `src/` и `tests/` начинают с явного импорта:
 
@@ -158,7 +169,7 @@ MSBuild автоматически находит только ближайши�
 
 ## CPM, тестовые пакеты и InternalsVisibleTo
 
-Версии всех NuGet-зависимостей централизованно фиксируются в корневом `Directory.Packages.props`, плавающие версии не допускаются. Конкретные версии выбираются и проверяются при создании каркаса. `PackageReference` в проектах и общих props не содержит `Version`. Дополнительные CPM-файлы в `src/` и `tests/` изначально не нужны.
+Версии всех NuGet-зависимостей централизованно фиксируются в корневом `Directory.Packages.props`, плавающие версии не допускаются. Версии используемых пакетов каркаса уже выбраны и проверены; последующие зависимости добавляются с фиксированными версиями. `PackageReference` в проектах и общих props не содержит `Version`. Дополнительные CPM-файлы в `src/` и `tests/` изначально не нужны.
 
 Для доступа к MinIO production-проект использует `AWSSDK.S3`; версия пакета фиксируется в CPM. Совместимость выбранной версии с целевой Native AOT публикацией проверяется отдельно.
 
@@ -290,11 +301,11 @@ Pipeline выпуска сначала публикует образ в GHCR, з
 dotnet tool restore
 dotnet restore Texnokaktus.ProgOlymp.RunnerAgent.slnx
 dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
-dotnet test --project tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests.csproj -c Release --no-build -- --coverage --coverage-output-format cobertura --report-trx
+dotnet test --project tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests.csproj -c Release --no-build --coverage --coverage-output-format cobertura --report-trx
 docker build -f src/Texnokaktus.ProgOlymp.RunnerAgent/Dockerfile -t runner-agent:local .
 ```
 
-Эти команды описывают будущий порядок; в текущем репозитории запускать их ещё рано. Unit-тесты не требуют isolate. Integration-тесты будут проверять собранный образ в Linux-среде с Docker, privileged containers и подходящей конфигурацией cgroups. Способ передачи образа и настройки тестового окружения будут добавлены вместе с тестовыми fixtures.
+Docker-команда и интеграционный этап ниже описывают будущий порядок. Restore/build и NUnit/MTP уже работают; актуальные команды с путями отчётов приведены в корневом README. Unit-тесты не требуют isolate. Integration-тесты будут проверять собранный образ в Linux-среде с Docker, privileged containers и подходящей конфигурацией cgroups. Способ передачи образа и настройки тестового окружения будут добавлены вместе с тестовыми fixtures.
 
 
 Планируемый порядок ручного деплоя MVP:
@@ -302,6 +313,6 @@ docker build -f src/Texnokaktus.ProgOlymp.RunnerAgent/Dockerfile -t runner-agent
 1. Выбрать проверенный образ в GHCR по тегу версии, подготовить Linux judge-host и при необходимости доступ на чтение registry.
 2. Подготовить конфигурацию gRPC/S3, credentials только для агента и локальную рабочую область.
 3. Запустить образ с долгоживущим агентом как privileged Docker-контейнер с согласованными mounts/cgroup-настройками и ограничениями host/container.
-4. Проверить доступность агента, отправить контрольное C++-задание с набором тестов и получить его результат отдельным запросом.
+4. Проверить доступность агента, отправить контрольное C++-задание с набором тестов и получить итоговый результат в ответе того же RunJob.
 
 Endpoint агента по умолчанию — `0.0.0.0:8080` внутри контейнера. Имена переменных конфигурации, публикация порта на host и команда запуска будут зафиксированы после спецификации окружения. Автоматический деплой не планируется; pipeline завершается публикацией в GHCR и фиксацией выпуска Git-тегом. Целевая более безопасная схема — dedicated Judge VM/host с native isolate.

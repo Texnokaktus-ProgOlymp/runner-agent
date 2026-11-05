@@ -1,0 +1,19 @@
+<Project>
+    <Import Project="$(MSBuildThisFileDirectory)../Directory.Build.props" />
+    <PropertyGroup>
+        <IsTestProject>true</IsTestProject>
+        <IsPackable>false</IsPackable>
+        <OutputType>Exe</OutputType>
+        <EnableNUnitRunner>true</EnableNUnitRunner>
+    </PropertyGroup>
+    <ItemGroup>
+        <Using Include="NUnit.Framework" />
+    </ItemGroup>
+    <ItemGroup>
+        <PackageReference Include="NUnit" PrivateAssets="all" />
+        <PackageReference Include="NUnit3TestAdapter" PrivateAssets="all" />
+        <PackageReference Include="NSubstitute" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.Testing.Extensions.CodeCoverage" PrivateAssets="all" />
+        <PackageReference Include="Microsoft.Testing.Extensions.TrxReport" PrivateAssets="all" />
+    </ItemGroup>
+</Project>

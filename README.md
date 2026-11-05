@@ -2,7 +2,7 @@
 
 Агент проверяющей системы для компиляции и исполнения олимпиадных решений в isolate. Первый MVP рассчитан на C++23: один исходный файл компилируется один раз, тесты выполняются последовательно в отдельных песочницах с независимыми лимитами.
 
-**Состояние проекта:** требования MVP согласованы 2 октября 2026 года и полностью мигрированы в OpenSpec 5 ноября 2026 года; модель RPC пересмотрена на один RunJob с отменой и очисткой. Приложение, .NET-проекты, Dockerfile, workflow и опубликованный образ пока отсутствуют. Проверки из спецификаций запланированы, их успешное выполнение не заявляется.
+**Состояние проекта:** реализация MVP начата. Создан независимый .NET 10 каркас: host с platform/OpenTelemetry, проверка конфигурации workspace, NUnit/MTP-тесты, smoke реального Linux-процесса и базовый GitHub Actions. RunJob, MinIO, isolate, production Dockerfile и публикация образа ещё не реализованы. Каркас не принимает задания; его запуск не подтверждает безопасность sandbox.
 
 ## Документация
 
@@ -32,4 +32,55 @@ openspec show implement-runner-agent
 openspec validate --all --strict --no-interactive
 ```
 
-Реализация начинается с независимого каркаса и локального прототипа по [tasks.md](openspec/changes/implement-runner-agent/tasks.md). Проверенные команды сборки и запуска появятся вместе с приложением; текущие примеры в плане репозитория явно обозначены как будущие.
+Ход реализации отслеживается в [tasks.md](openspec/changes/implement-runner-agent/tasks.md).
+
+## Сборка и проверки каркаса
+
+Нужен .NET SDK 10.0.403 (разрешены последующие patch той же feature band). Версии зафиксированы в `global.json`, CPM и tool manifest. Используются NUnit 4.6.1, adapter 6.3.1, MTP 2.4.1, NSubstitute 6.2.0, CodeCoverage 18.11.2, TrxReport 2.4.1, ReportGenerator 5.5.11 и Platform 2026.9.19.2. Встроенные .NET analyzers работают на уровне `10.0-recommended`, предупреждения считаются ошибками.
+
+`NuGet.Config` направляет `Texnokaktus.ProgOlymp.*` в GitHub Packages, остальные зависимости — в nuget.org; аудит выполняется через nuget.org. Для чистого cache нужен доступ на чтение platform/OpenTelemetry в GitHub Packages. Credentials не входят в репозиторий: настройте `NuGetPackageSourceCredentials_github` в окружении в стандартном формате NuGet `Username=<login>;Password=<token>;ValidAuthenticationTypes=Basic`. CI использует встроенный `GITHUB_TOKEN` с `packages: read`; репозиторию необходимо предоставить read-доступ к двум пакетам. Токен не передаётся приложению или smoke.
+
+```sh
+dotnet tool restore
+dotnet restore Texnokaktus.ProgOlymp.RunnerAgent.slnx
+dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
+dotnet test --solution Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-build --coverage --coverage-output-format cobertura --report-trx --results-directory artifacts/test-results
+dotnet reportgenerator '-reports:artifacts/test-results/*.cobertura.xml' '-targetdir:artifacts/coverage' '-reporttypes:Html;MarkdownSummaryGithub'
+dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o artifacts/host
+```
+
+`.Tests` проверяет локальные правила, а `.IntegrationTests` — настоящий entry point и HTTP pipeline через `WebApplicationFactory`: обязательный SERVICE_NAME, приоритет/фиксацию конфигурации и старт/остановку host без MinIO/isolate. Фабрика находится в `Tools`, lifecycle — в `SetupBase`/`SetupGlobal`; проверки gRPC/storage/isolate будут добавляться по мере реализации. Всего сейчас 33 теста, без пропусков.
+
+## Запуск каркаса
+
+`SERVICE_NAME` обязателен и непустой. `Runner__WorkspaceRoot` переопределяет `Runner:WorkspaceRoot` из `appsettings.json`; по умолчанию `/var/lib/runner-agent`. Подготовьте существующий доступный на запись каталог; корень файловой системы не допускается. При старте создаётся и сразу удаляется уникальный probe-файл; чужие файлы и каталоги не очищаются. Собственные workspace появятся на следующем этапе. JSON читается рядом со сборкой, изменения настроек требуют перезапуска.
+
+Linux:
+
+```sh
+mkdir -p /tmp/runner-agent-workspace
+SERVICE_NAME=runner-agent-cpp-23 Runner__WorkspaceRoot=/tmp/runner-agent-workspace dotnet artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll
+```
+
+PowerShell:
+
+```powershell
+New-Item -ItemType Directory -Force artifacts/workspace | Out-Null
+$env:SERVICE_NAME = 'runner-agent-cpp-23'
+$env:Runner__WorkspaceRoot = (Resolve-Path artifacts/workspace).Path
+dotnet run --project src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-build
+```
+
+Остановка — Ctrl+C, в Linux также SIGTERM. Штатный выход даёт 0. По решению пользователя общий catch в entry point отсутствует: ошибка старта пока остаётся обычным исключением .NET с ненулевым кодом, без нормализации к 1; управляемые коды выхода будут реализованы в задаче 6.5. HTTP/2 endpoint по умолчанию `http://0.0.0.0:8080`; `ASPNETCORE_URLS`/`Urls` позволяют его переопределить. RPC и health ещё отсутствуют.
+
+В Linux выполните smoke реального процесса:
+
+```sh
+sh scripts/smoke.sh artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll
+```
+
+Smoke проверяет отсутствие/пустой `SERVICE_NAME`, некорректный workspace, успешный запуск и SIGTERM с кодом 0, сохранность постороннего файла и отсутствие оставшихся probes. Он не требует privileged Docker, MinIO или isolate. Проверка прошла также в `mcr.microsoft.com/dotnet/aspnet:10.0.14` на linux/amd64.
+
+Базовый CI запускается на push `master`, собирает Release, выполняет тесты и smoke, сохраняет доступные отчёты даже при неуспехе. Отдельный AOT job информационный; production остаётся JIT. Запуск реального GitHub workflow и linux-x64 AOT пока не проверены: origin остаётся Gitea, перенос выполняет пользователь. Публикация образа ещё не подключена.
+
+Для следующего этапа нужны cgroups v2, `memory.peak`, контроллеры CPU/memory/pids и управление swap/OOM. После обновления WSL 5 ноября Docker Desktop использует cgroups v2 и ядро 6.18.54.1. В privileged-контейнере доступны cpu/memory/pids, memory.peak, memory.swap.max, memory.oom.group и pids.events. Это проверка базовых возможностей; полноценная приёмка изоляции и лимитов ещё предстоит. Упрощённый режим с cgroups v1 не планируется.

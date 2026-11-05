@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+    <ItemGroup>
+        <ProjectReference Include="../../src/Texnokaktus.ProgOlymp.RunnerAgent/Texnokaktus.ProgOlymp.RunnerAgent.csproj" />
+    </ItemGroup>
+</Project>
