@@ -61,6 +61,8 @@
 
 Подготовлены локальные `LocalSubmission`/`LocalSubmissionResult` и `ISubmissionRunner.RunAsync(LocalSubmission, CancellationToken)`: пути файлов и исходные ID, отдельные compilation/execution limits, упорядоченные тесты; локальный результат содержит nullable метрики/exit code/signal/причину, пути stdout/stderr/metadata и отдельные коды инфраструктурной диагностики. Эти типы не зависят от gRPC/S3. `CppLanguageProvider` зарегистрирован явно и задаёт `/usr/bin/g++ -std=c++23 -O2 -pipe -DONLINE_JUDGE /box/source.cpp -o /box/solution`, затем `/box/solution`; линковка динамическая. Контракт реализован локальным IsolateSubmissionRunner: LocalSubmission также содержит WorkspacePath, результат — EnvironmentReusable и список подтверждённых нарушений. Выбраны isolate v2.7 (8f185bb37f3f23e29b33b0c7727c91c13429abe3), g++ 13.3.0 и runtime 10.0.14/Ubuntu 24.04. Валидация учитывает положительность, signed int32 native milliseconds и signed int32 KiB после проверенного округления памяти до страницы. Transport-валидация Q-03/Q-05 ещё не реализована; полный mapping/набор AT остаётся на этапе 3.
 
+Уточнение 6 ноября 2026 года: [параметры Яндекс Контеста](https://contest.yandex.ru/docs/ru/compilers) используются как ориентир с проверкой на нашем toolchain. C++-команда сохраняется; обе стадии получают явную `ONLINE_JUDGE=1`. Для будущих providers одноимённый символ условной компиляции задаётся средствами языка; состав языков MVP не расширяется.
+
 Ниже сохранён реестр технической детализации, а не вопросы о пересогласовании продукта.
 
 

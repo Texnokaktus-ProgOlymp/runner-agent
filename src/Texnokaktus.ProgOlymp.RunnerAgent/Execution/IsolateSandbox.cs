@@ -87,6 +87,7 @@ internal sealed class IsolateSandbox
                 "--stdin=/box/input.txt",
                 "--env=PATH=/usr/bin:/bin",
                 "--env=LANG=C",
+                "--env=ONLINE_JUDGE=1",
                 "--no-default-dirs",
                 $"--dir=box={Box}:rw",
                 "--dir=usr",

@@ -13,7 +13,7 @@ public sealed class SandboxExecutionTests : SetupBase
     private static readonly int[] TestIds = [8, 2, 5];
     private static readonly string[] ExpectedStdout = ["16", "4", "10"];
     private static readonly string[] ExpectedStderr = ["err8", "err2", "err5"];
-    private static readonly string[] AllowedEnvironment = ["PATH", "LANG", "LIBC_FATAL_STDERR_"];
+    private static readonly string[] AllowedEnvironment = ["PATH", "LANG", "ONLINE_JUDGE", "LIBC_FATAL_STDERR_"];
 
     private static readonly ResourceLimits CompilationLimits = new(
         10000,
@@ -278,11 +278,17 @@ public sealed class SandboxExecutionTests : SetupBase
 
         var source = $$"""
                        #include <cstdlib>
+                       #include <cstring>
                        #include <fstream>
                        #include <unistd.h>
                        #include <sys/socket.h>
                        #include <arpa/inet.h>
+                       #if !defined(ONLINE_JUDGE) || ONLINE_JUDGE != 1
+                       #error ONLINE_JUDGE must be defined as 1
+                       #endif
                        int main() {
+                           const char* judge = getenv("ONLINE_JUDGE");
+                           if (!judge || std::strcmp(judge, "1") != 0) return 16;
                            if (!geteuid()) return 10;
                            if (getenv("AWS_SECRET_ACCESS_KEY") || getenv("FOREIGN_SECRET")) return 11;
                            if (std::ifstream("/proc/1/environ").good()) return 12;
@@ -441,11 +447,13 @@ public sealed class SandboxExecutionTests : SetupBase
 
                     Assert.That(uid[2], Is.EqualTo("60000"));
 
-                    var environmentKeys = File.ReadAllText(Path.Combine(processRoot, "environ"))
-                                              .Split('\0', StringSplitOptions.RemoveEmptyEntries)
-                                              .Select(entry => entry.Split('=', 2)[0]);
+                    var environment = File.ReadAllText(Path.Combine(processRoot, "environ"))
+                                          .Split('\0', StringSplitOptions.RemoveEmptyEntries);
+
+                    var environmentKeys = environment.Select(entry => entry.Split('=', 2)[0]);
 
                     Assert.That(environmentKeys, Is.SubsetOf(AllowedEnvironment));
+                    Assert.That(environment, Does.Contain("ONLINE_JUDGE=1"));
                     var networkNamespace = new FileInfo(Path.Combine(processRoot, "ns/net")).LinkTarget;
 
                     Assert.That(
