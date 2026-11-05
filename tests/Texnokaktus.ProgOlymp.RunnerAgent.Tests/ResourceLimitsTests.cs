@@ -38,4 +38,35 @@ public sealed class ResourceLimitsTests
         execution.Validate();
         Assert.That(compilation, Is.Not.EqualTo(execution));
     }
+
+    [Test]
+    public void RoundsMemoryUpWithoutChangingRequestedBudget()
+    {
+        var limits = new ResourceLimits(1, 1, 1, 1, 1, 1);
+        limits.Validate();
+        Assert.That(limits.AppliedMemoryBytes, Is.EqualTo(Environment.SystemPageSize));
+        Assert.That(limits.MemoryBytes, Is.EqualTo(1));
+    }
+
+    [TestCase(2147483648L, 1)]
+    [TestCase(1, 2147483648L)]
+    public void RejectsTimersThatCannotBeRepresentedByIsolate(long cpu, long wall)
+    {
+        var limits = new ResourceLimits(cpu, wall, 4096, 1, 1, 1);
+        Assert.That(limits.Validate, Throws.ArgumentException);
+    }
+
+    [Test]
+    public void RejectsMemoryRoundingOverflow()
+    {
+        var limits = new ResourceLimits(1, 1, long.MaxValue, 1, 1, 1);
+        Assert.That(limits.Validate, Throws.TypeOf<OverflowException>());
+    }
+
+    [Test]
+    public void RejectsMemoryOutsideNativeKilobyteRangeAfterRounding()
+    {
+        var limits = new ResourceLimits(1, 1, (long)int.MaxValue * 1024, 1, 1, 1);
+        Assert.That(limits.Validate, Throws.ArgumentException);
+    }
 }

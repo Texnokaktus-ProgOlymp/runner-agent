@@ -1,6 +1,6 @@
 # Структура репозитория и сборка
 
-Статус: реализация MVP начата 5 ноября 2026 года. Созданы host, `.Tests`, `.IntegrationTests` для entry point/HTTP pipeline, MSBuild/CPM, tool manifest, smoke и базовый workflow; production Dockerfile, API, storage и sandbox остаются планом. Требования MVP и платформа linux/amd64 сохраняются. Версии и проверки каркаса приведены ниже и в корневом README.
+Статус: реализация MVP начата 5 ноября 2026 года. Созданы host, `.Tests`, `.IntegrationTests` для entry point/HTTP pipeline, MSBuild/CPM, tool manifest, smoke и базовый workflow; production Dockerfile, API и storage остаются планом; локальный sandbox реализован как экспериментальный прототип. Требования MVP и платформа linux/amd64 сохраняются. Версии и проверки каркаса приведены ниже и в корневом README.
 
 ## Фактический каркас
 
@@ -301,7 +301,7 @@ Pipeline выпуска сначала публикует образ в GHCR, з
 dotnet tool restore
 dotnet restore Texnokaktus.ProgOlymp.RunnerAgent.slnx
 dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
-dotnet test --project tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests.csproj -c Release --no-build --coverage --coverage-output-format cobertura --report-trx
+dotnet test --project tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests.csproj -c Release --no-build --filter "TestCategory!=Sandbox" --coverage --coverage-output-format cobertura --report-trx
 docker build -f src/Texnokaktus.ProgOlymp.RunnerAgent/Dockerfile -t runner-agent:local .
 ```
 
@@ -316,3 +316,6 @@ Docker-команда и интеграционный этап ниже опис
 4. Проверить доступность агента, отправить контрольное C++-задание с набором тестов и получить итоговый результат в ответе того же RunJob.
 
 Endpoint агента по умолчанию — `0.0.0.0:8080` внутри контейнера. Имена переменных конфигурации, публикация порта на host и команда запуска будут зафиксированы после спецификации окружения. Автоматический деплой не планируется; pipeline завершается публикацией в GHCR и фиксацией выпуска Git-тегом. Целевая более безопасная схема — dedicated Judge VM/host с native isolate.
+
+
+Экспериментальный локальный runner, версии isolate/g++ и команды tests/prototype/run.ps1 описаны в корневом README. Автономный CI использует фильтр TestCategory!=Sandbox; полная категория Sandbox требует подготовленного privileged Docker/cgroups v2 и не заменяется пропусками. Docker/integration CI и production startup остаются следующими этапами.

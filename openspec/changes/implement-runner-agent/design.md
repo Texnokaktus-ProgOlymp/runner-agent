@@ -59,7 +59,7 @@
 
 Результат детализации каркаса Q-11/Q-12: SDK 10.0.403/`latestPatch` без preview, built-in .NET analyzers `10.0-recommended`, warnings as errors. Зафиксированы Platform 2026.9.19.2 (OpenTelemetry 2026.9.19.15 транзитивно), NUnit 4.6.1, adapter 6.3.1/MTP 2.4.1, NSubstitute 6.2.0, CodeCoverage 18.11.2, TrxReport 2.4.1 и ReportGenerator 5.5.11. Actions: checkout 4.2.2, setup-dotnet 4.3.1, upload-artifact 4.6.2; отчёты хранятся 3 дня. Детали запуска и фактические ограничения описаны в README и repository.md; Linux CI/AOT ещё не выполнялись на GitHub.
 
-Подготовлены локальные `LocalSubmission`/`LocalSubmissionResult` и `ISubmissionRunner.RunAsync(LocalSubmission, CancellationToken)`: пути файлов и исходные ID, отдельные compilation/execution limits, упорядоченные тесты; локальный результат содержит nullable метрики/exit code/signal/причину, пути stdout/stderr/metadata и отдельные коды инфраструктурной диагностики. Эти типы не зависят от gRPC/S3. `CppLanguageProvider` зарегистрирован явно и задаёт `/usr/bin/g++ -std=c++23 -O2 -pipe -DONLINE_JUDGE /box/source.cpp -o /box/solution`, затем `/box/solution`; линковка динамическая. Это внутренний контракт для прототипа, пока без реализации runner; версия g++ и применимость верхних границ limits будут проверены вместе с Linux/isolate. Общая локальная валидация сейчас проверяет только положительность всех шести limits; transport-валидация Q-03/Q-05 ещё не реализована.
+Подготовлены локальные `LocalSubmission`/`LocalSubmissionResult` и `ISubmissionRunner.RunAsync(LocalSubmission, CancellationToken)`: пути файлов и исходные ID, отдельные compilation/execution limits, упорядоченные тесты; локальный результат содержит nullable метрики/exit code/signal/причину, пути stdout/stderr/metadata и отдельные коды инфраструктурной диагностики. Эти типы не зависят от gRPC/S3. `CppLanguageProvider` зарегистрирован явно и задаёт `/usr/bin/g++ -std=c++23 -O2 -pipe -DONLINE_JUDGE /box/source.cpp -o /box/solution`, затем `/box/solution`; линковка динамическая. Контракт реализован локальным IsolateSubmissionRunner: LocalSubmission также содержит WorkspacePath, результат — EnvironmentReusable и список подтверждённых нарушений. Выбраны isolate v2.7 (8f185bb37f3f23e29b33b0c7727c91c13429abe3), g++ 13.3.0 и runtime 10.0.14/Ubuntu 24.04. Валидация учитывает положительность, signed int32 native milliseconds и signed int32 KiB после проверенного округления памяти до страницы. Transport-валидация Q-03/Q-05 ещё не реализована; полный mapping/набор AT остаётся на этапе 3.
 
 Ниже сохранён реестр технической детализации, а не вопросы о пересогласовании продукта.
 
@@ -86,7 +86,7 @@
 ## Implementation Sequence
 
 
-Требования MVP согласованы. Независимый каркас и минимальный локальный прототип создаются без ожидания готовой реализации wire-контракта и lifecycle; их техническая проработка может идти параллельно. Возможности Linux-среды и isolate проверяются на минимально работающем прототипе, а не до создания `.slnx`. Приложение и прототип пока отсутствуют; план не означает уже пройденных проверок.
+Требования MVP согласованы. Независимый каркас и минимальный локальный прототип создаются без ожидания готовой реализации wire-контракта и lifecycle; их техническая проработка может идти параллельно. Возможности Linux-среды и isolate проверяются на минимально работающем прототипе, а не до создания `.slnx`. Каркас и локальный прототип реализованы; выполненные проверки описаны в README, остальные критерии не объявляются пройденными.
 
 | Этап | Работа | Критерий готовности и зависимости |
 | --- | --- | --- |

@@ -1,4 +1,5 @@
 using Texnokaktus.ProgOlymp.Platform;
+using Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 using Texnokaktus.ProgOlymp.RunnerAgent.Languages;
 using Texnokaktus.ProgOlymp.RunnerAgent.Workspace;
 
@@ -18,6 +19,9 @@ builder.Configuration.GetSection("Runner").Bind(runner);
 runner.Validate();
 builder.Services.AddSingleton(runner);
 builder.Services.AddSingleton<ILanguageProvider, CppLanguageProvider>();
+builder.Services.AddSingleton<IsolateSandbox>();
+builder.Services.AddSingleton<ISubmissionRunner, IsolateSubmissionRunner>();
+builder.Services.AddSingleton(new WorkspaceManager(runner.WorkspaceRoot));
 builder.UsePlatform();
 
 await using var app = builder.Build();

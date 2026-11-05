@@ -1,7 +1,8 @@
 namespace Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 
-internal sealed record LocalSubmission(
+public sealed record LocalSubmission(
     long JobId,
+    string WorkspacePath,
     string SourcePath,
     IReadOnlyList<LocalTest> Tests,
     ResourceLimits CompilationLimits,

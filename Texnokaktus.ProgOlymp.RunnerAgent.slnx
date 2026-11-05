@@ -21,4 +21,9 @@
         <Project
                 Path="tests/Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests/Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests.csproj" />
     </Folder>
+    <Folder Name="/tests/prototype/">
+        <File Path="tests/prototype/Dockerfile" />
+        <File Path="tests/prototype/environment.sh" />
+        <File Path="tests/prototype/run.ps1" />
+    </Folder>
 </Solution>

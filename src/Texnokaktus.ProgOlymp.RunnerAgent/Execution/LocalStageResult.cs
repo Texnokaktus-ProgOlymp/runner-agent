@@ -1,6 +1,6 @@
 namespace Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 
-internal sealed record LocalStageResult(
+public sealed record LocalStageResult(
     TerminationReason? Reason,
     long? CpuTimeMs,
     long? WallTimeMs,
@@ -11,5 +11,6 @@ internal sealed record LocalStageResult(
     string? StdoutPath,
     string? StderrPath,
     string? MetadataPath,
-    IReadOnlyList<InfrastructureDiagnostic> Diagnostics
+    IReadOnlyList<InfrastructureDiagnostic> Diagnostics,
+    IReadOnlyList<TerminationReason> Violations
 );

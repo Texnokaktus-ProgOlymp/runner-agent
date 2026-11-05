@@ -2,7 +2,7 @@
 
 Агент проверяющей системы для компиляции и исполнения олимпиадных решений в isolate. Первый MVP рассчитан на C++23: один исходный файл компилируется один раз, тесты выполняются последовательно в отдельных песочницах с независимыми лимитами.
 
-**Состояние проекта:** реализация MVP начата. Создан независимый .NET 10 каркас: host с platform/OpenTelemetry, проверка конфигурации workspace, NUnit/MTP-тесты, smoke реального Linux-процесса и базовый GitHub Actions. RunJob, MinIO, isolate, production Dockerfile и публикация образа ещё не реализованы. Каркас не принимает задания; его запуск не подтверждает безопасность sandbox.
+**Состояние проекта:** реализация MVP начата. Создан независимый .NET 10 каркас: host с platform/OpenTelemetry, проверка конфигурации workspace, NUnit/MTP-тесты, smoke реального Linux-процесса и базовый GitHub Actions. Добавлен локальный isolate-runner и тестовый Docker-образ; RunJob, MinIO, production Dockerfile и публикация образа ещё не реализованы. Host пока не принимает задания по API; полная приёмка sandbox не завершена.
 
 ## Документация
 
@@ -44,7 +44,7 @@ openspec validate --all --strict --no-interactive
 dotnet tool restore
 dotnet restore Texnokaktus.ProgOlymp.RunnerAgent.slnx
 dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
-dotnet test --solution Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-build --coverage --coverage-output-format cobertura --report-trx --results-directory artifacts/test-results
+dotnet test --solution Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-build --filter "TestCategory!=Sandbox" --coverage --coverage-output-format cobertura --report-trx --results-directory artifacts/test-results
 dotnet reportgenerator '-reports:artifacts/test-results/*.cobertura.xml' '-targetdir:artifacts/coverage' '-reporttypes:Html;MarkdownSummaryGithub'
 dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o artifacts/host
 ```
@@ -84,3 +84,27 @@ Smoke проверяет отсутствие/пустой `SERVICE_NAME`, не�
 Базовый CI запускается на push `master`, собирает Release, выполняет тесты и smoke, сохраняет доступные отчёты даже при неуспехе. Отдельный AOT job информационный; production остаётся JIT. Запуск реального GitHub workflow и linux-x64 AOT пока не проверены: origin остаётся Gitea, перенос выполняет пользователь. Публикация образа ещё не подключена.
 
 Для следующего этапа нужны cgroups v2, `memory.peak`, контроллеры CPU/memory/pids и управление swap/OOM. После обновления WSL 5 ноября Docker Desktop использует cgroups v2 и ядро 6.18.54.1. В privileged-контейнере доступны cpu/memory/pids, memory.peak, memory.swap.max, memory.oom.group и pids.events. Это проверка базовых возможностей; полноценная приёмка изоляции и лимитов ещё предстоит. Упрощённый режим с cgroups v1 не планируется.
+
+## Локальный sandbox-прототип
+
+Реализован публичный локальный контракт `ISubmissionRunner.RunAsync(LocalSubmission, CancellationToken)`: workspace, исходник и входы представлены локальными путями, compilation/execution limits разделены. Runner не зависит от gRPC/S3. `WorkspaceManager.Create(jobId)` выдаёт отдельный `JobWorkspace`; вызывающий код владеет им и удаляет после чтения/публикации результатов через `Dispose`.
+
+Компиляция выполняется один раз. Для неё и каждого теста box 0 создаётся заново и очищается; повторное использование номера происходит только после удаления предыдущего box/cgroup. Контейнеры имеют приватные cgroup/PID namespaces и отдельные файловые области. Тесты идут в исходном порядке, включая 8, 2, 5; рабочие файлы и временные каталоги между ними не переносятся.
+
+Прототип использует .NET runtime 10.0.14 / Ubuntu 24.04, isolate 2.7 (commit `8f185bb37f3f23e29b33b0c7727c91c13429abe3`) и g++ 13.3.0 (`13.3.0-6ubuntu2~24.04.1`). Docker build проверяет версию g++. Image собирается из опубликованного host без SDK, NuGet credentials и файлов заданий. Это экспериментальный образ, не production-поставка.
+
+После обычных restore-команд на машине с Linux amd64 Docker и cgroups v2:
+
+```powershell
+powershell -NoProfile -File tests/prototype/run.ps1
+```
+
+Из PowerShell 7 на Linux используйте `pwsh -File tests/prototype/run.ps1`. Скрипт собирает Release, публикует host, создаёт `runner-agent-prototype:local` и выполняет NUnit-категорию `Sandbox` в одноразовом privileged-контейнере с `--cgroupns=private`. Исходники/build output монтируются только для чтения, TRX сохраняется в `artifacts/sandbox-results`. Shell bootstrap нормализует CRLF внутри контейнера; настройки окончаний строк репозитория не меняются. Тестовый runner запускается из полного build output: `dotnet publish` тестового проекта не переносит все runtime-зависимости MTP.
+
+`environment.sh` предназначен только для такого одноразового контейнера: проверяет приватный cgroup namespace, переносит управляющие процессы в отдельную cgroup, включает cpu/memory/pids для boxes и создаёт `/etc/isolate`. Процессы sandbox работают с UID/GID 60000. `/usr`, `/bin`, `/lib`, `/lib64` доступны только для чтения, `/proc` ограничен isolate; запись разрешена в `/box` и свежий `/tmp`. Вместо полного `/dev` предоставляются только null/zero/random/urandom. Окружение isolate очищается целиком; задаются PATH/LANG, внутри isolate также используется его стандартный `LIBC_FATAL_STDERR_=1`.
+
+Stdout/stderr независимо ограничиваются при чтении из pipe и сохраняются вне доступного sandbox дерева. CPU учитывается всей cgroup, wall time берётся из монотонных часов isolate, peak memory читается из `memory.peak` в байтах до cleanup. Лимит памяти округляется вверх до страницы с проверкой переполнения; результат содержит прочитанный `memory.max`. Native timers принимают положительные миллисекунды до `int.MaxValue`; память после округления должна помещаться в signed int32 KiB. Неприменимые значения отвергаются до запуска.
+
+Для каждой стадии выставляются `memory.oom.group=1` и `pids.max`, isolate отключает swap. Причины выбираются по подтверждённым событиям/метрикам, один сигнал не доказывает превышение. При отмене выполняются cgroup.kill и SIGTERM keeper, чтобы isolate завершил и собрал proxy-процессы; cleanup не использует отменённый токен. Source-generated POSIX interop требует `AllowUnsafeBlocks` только в host-проекте. Ошибка cleanup помечает среду непригодной и запрещает следующие вызовы локального sandbox; автоматическое завершение всего агента будет подключено вместе с orchestration.
+
+Проверены 39 автономных тестов и Linux-сценарии `Sandbox`: одна компиляция/порядок/независимые файлы, compilation error, CPU дочернего процесса, независимый wall time, групповой OOM, процессы/потоки с обработанным отказом, два потока вывода, UID/environment/proc/network isolation и отмена без оставшихся box/cgroup/proxy. Полная приёмка AT-01–AT-79, автоматическая startup-проверка, gRPC, MinIO, crash recovery и production CI пока не завершены.

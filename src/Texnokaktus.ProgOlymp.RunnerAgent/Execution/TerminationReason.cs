@@ -1,6 +1,6 @@
 namespace Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 
-internal enum TerminationReason
+public enum TerminationReason
 {
     Success,
     RuntimeError,

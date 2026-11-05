@@ -7,7 +7,8 @@ namespace Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests.Tools;
 
 public sealed class CustomWebApplicationFactory(params string[] args) : WebApplicationFactory<Program>
 {
-    protected override void ConfigureWebHost(IWebHostBuilder builder) => builder.UseEnvironment("Testing");
+    protected override void ConfigureWebHost(IWebHostBuilder builder) =>
+        builder.UseEnvironment("Testing").UseContentRoot(AppContext.BaseDirectory);
 
     protected override IHost CreateHost(IHostBuilder builder)
     {

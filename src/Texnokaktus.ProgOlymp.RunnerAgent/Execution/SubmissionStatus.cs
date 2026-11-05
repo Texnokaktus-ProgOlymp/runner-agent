@@ -1,6 +1,6 @@
 namespace Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 
-internal enum SubmissionStatus
+public enum SubmissionStatus
 {
     Completed,
     CompilationError,
