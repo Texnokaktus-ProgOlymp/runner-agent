@@ -20,7 +20,7 @@ RunnerAgent SHALL сохранять логические границы transpo
 | Компонент | Ответственность |
 | --- | --- |
 | `Grpc` / `JudgeRunnerService` | Принятие запросов, преобразование transport models, выдача результата |
-| Orchestration | Состояние задания в памяти, занятость до чтения, независимая от RPC обработка, координация storage/workspace/runner и публикации |
+| Orchestration | Единственный слот RunJob, координация storage/workspace/runner, распространение отмены и обязательная очистка до освобождения слота |
 | `Storage` / `IObjectStorage`, `S3ObjectStorage` | Получение и публикация S3-объектов, метаданные хранилища |
 | `Execution` / `ISubmissionRunner`, `IsolateSubmissionRunner` | Локальная компиляция и execution pipeline, преобразование isolate metadata |
 | `Languages` / `ILanguageProvider`, `CppLanguageProvider` | Единственный профиль компилятора экземпляра агента, проверка совместимости задания, toolchain, команды, файлы и окружение |
