@@ -21,6 +21,8 @@ builder.Services.AddSingleton(runner);
 builder.Services.AddSingleton<ILanguageProvider, CppLanguageProvider>();
 builder.Services.AddSingleton<IsolateSandbox>();
 builder.Services.AddSingleton<ISubmissionRunner, IsolateSubmissionRunner>();
+builder.Services.AddSingleton<ISandboxEnvironment, SandboxEnvironment>();
+builder.Services.AddHostedService<SandboxStartupService>();
 builder.Services.AddSingleton(new WorkspaceManager(runner.WorkspaceRoot));
 builder.UsePlatform();
 

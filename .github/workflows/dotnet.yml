@@ -1,86 +1,86 @@
 name: dotnet
 
 on:
-  push:
-    branches: [ master ]
+    push:
+        branches: [master]
 
 permissions:
-  contents: read
-  packages: read
+    contents: read
+    packages: read
 
 env:
-  DOTNET_NOLOGO: true
-  DOTNET_CLI_TELEMETRY_OPTOUT: true
+    DOTNET_NOLOGO: true
+    DOTNET_CLI_TELEMETRY_OPTOUT: true
 
 jobs:
-  build:
-    runs-on: ubuntu-24.04
-    concurrency:
-      group: checks-${{ github.ref }}
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-dotnet@v4.3.1
-          with:
-            global-json-file: global.json
-      - name: Restore
-          env:
-            NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
-          run: |
-            dotnet tool restore
-            dotnet restore Texnokaktus.ProgOlymp.RunnerAgent.slnx
-      - name: Build
-          run: dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
-      - name: Test
-          run: dotnet test --solution Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-build --filter "TestCategory!=Sandbox" --coverage --coverage-output-format cobertura --report-trx --results-directory artifacts/test-results
-      - name: Smoke real process
-          run: |
-            dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o artifacts/host
-            sh scripts/smoke.sh artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll
-      - name: Coverage summary
-          if: ${{ !cancelled() && hashFiles('artifacts/test-results/*.cobertura.xml') != '' }}
-          run: |
-            dotnet reportgenerator '-reports:artifacts/test-results/*.cobertura.xml' '-targetdir:artifacts/coverage' '-reporttypes:Html;MarkdownSummaryGithub'
-            cat artifacts/coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
-      - name: Save available reports
-          if: ${{ always() }}
-          uses: actions/upload-artifact@v4.6.2
-          with:
-            name: test-reports
-            path: |
-              artifacts/test-results/
-              artifacts/coverage/
-            if-no-files-found: warn
-            retention-days: 3
+    build:
+        runs-on: ubuntu-24.04
+        concurrency:
+            group: checks-${{ github.ref }}
+            cancel-in-progress: true
+        steps:
+            -   uses: actions/checkout@v4.2.2
+            -   uses: actions/setup-dotnet@v4.3.1
+                with:
+                    global-json-file: global.json
+            -   name: Restore
+                env:
+                    NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
+                run: |
+                    dotnet tool restore
+                    dotnet restore Texnokaktus.ProgOlymp.RunnerAgent.slnx
+            -   name: Build
+                run: dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
+            -   name: Test
+                run: dotnet test --solution Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-build --filter "TestCategory!=Sandbox" --coverage --coverage-output-format cobertura --report-trx --results-directory artifacts/test-results
+            -   name: Smoke real process
+                run: |
+                    dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o artifacts/host
+                    sh scripts/smoke.sh artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll configuration
+            -   name: Coverage summary
+                if: ${{ !cancelled() && hashFiles('artifacts/test-results/*.cobertura.xml') != '' }}
+                run: |
+                    dotnet reportgenerator '-reports:artifacts/test-results/*.cobertura.xml' '-targetdir:artifacts/coverage' '-reporttypes:Html;MarkdownSummaryGithub'
+                    cat artifacts/coverage/SummaryGithub.md >> "$GITHUB_STEP_SUMMARY"
+            -   name: Save available reports
+                if: ${{ always() }}
+                uses: actions/upload-artifact@v4.6.2
+                with:
+                    name: test-reports
+                    path: |
+                        artifacts/test-results/
+                        artifacts/coverage/
+                    if-no-files-found: warn
+                    retention-days: 3
 
-  aot:
-    name: AOT (informational)
-    runs-on: ubuntu-24.04
-    continue-on-error: true
-    concurrency:
-      group: aot-${{ github.ref }}
-      cancel-in-progress: true
-    steps:
-      - uses: actions/checkout@v4.2.2
-      - uses: actions/setup-dotnet@v4.3.1
-          with:
-            global-json-file: global.json
-      - name: Publish Native AOT
-          env:
-            NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
-          run: |
-            set -o pipefail
-            mkdir -p artifacts
-            dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release -r linux-x64 -p:PublishAot=true -p:TreatWarningsAsErrors=false -o artifacts/aot 2>&1 | tee artifacts/aot.log
-      - name: AOT summary
-          if: ${{ always() }}
-          run: |
-            echo '### Native AOT (informational)' >> "$GITHUB_STEP_SUMMARY"
-            echo 'Result: ${{ job.status }}. Production uses JIT; sandbox and full integration compatibility are not established.' >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4.6.2
-          if: ${{ always() }}
-          with:
-            name: aot-log
-            path: artifacts/aot.log
-            if-no-files-found: warn
-            retention-days: 3
+    aot:
+        name: AOT (informational)
+        runs-on: ubuntu-24.04
+        continue-on-error: true
+        concurrency:
+            group: aot-${{ github.ref }}
+            cancel-in-progress: true
+        steps:
+            -   uses: actions/checkout@v4.2.2
+            -   uses: actions/setup-dotnet@v4.3.1
+                with:
+                    global-json-file: global.json
+            -   name: Publish Native AOT
+                env:
+                    NuGetPackageSourceCredentials_github: Username=${{ github.actor }};Password=${{ github.token }};ValidAuthenticationTypes=Basic
+                run: |
+                    set -o pipefail
+                    mkdir -p artifacts
+                    dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release -r linux-x64 -p:PublishAot=true -p:TreatWarningsAsErrors=false -o artifacts/aot 2>&1 | tee artifacts/aot.log
+            -   name: AOT summary
+                if: ${{ always() }}
+                run: |
+                    echo '### Native AOT (informational)' >> "$GITHUB_STEP_SUMMARY"
+                    echo 'Result: ${{ job.status }}. Production uses JIT; sandbox and full integration compatibility are not established.' >> "$GITHUB_STEP_SUMMARY"
+            -   uses: actions/upload-artifact@v4.6.2
+                if: ${{ always() }}
+                with:
+                    name: aot-log
+                    path: artifacts/aot.log
+                    if-no-files-found: warn
+                    retention-days: 3

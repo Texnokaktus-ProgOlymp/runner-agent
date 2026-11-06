@@ -318,4 +318,4 @@ Docker-команда и интеграционный этап ниже опис
 Endpoint агента по умолчанию — `0.0.0.0:8080` внутри контейнера. Имена переменных конфигурации, публикация порта на host и команда запуска будут зафиксированы после спецификации окружения. Автоматический деплой не планируется; pipeline завершается публикацией в GHCR и фиксацией выпуска Git-тегом. Целевая более безопасная схема — dedicated Judge VM/host с native isolate.
 
 
-Экспериментальный локальный runner, версии isolate/g++ и команды tests/prototype/run.ps1 описаны в корневом README. Автономный CI использует фильтр TestCategory!=Sandbox; полная категория Sandbox требует подготовленного privileged Docker/cgroups v2 и не заменяется пропусками. Docker/integration CI и production startup остаются следующими этапами.
+Экспериментальный локальный runner, версии isolate/g++ и команды tests/prototype/run.ps1 описаны в корневом README. Автономный CI использует фильтр TestCategory!=Sandbox; полная категория Sandbox требует подготовленного privileged Docker/cgroups v2 и не заменяется пропусками. Startup-пробник подключён до сервера и проверяется в privileged Docker; Docker/integration CI остаётся следующим этапом.

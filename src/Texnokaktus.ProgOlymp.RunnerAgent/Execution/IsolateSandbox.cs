@@ -363,7 +363,7 @@ internal sealed class IsolateSandbox
         return info;
     }
 
-    private static async Task<int> ControlAsync(string action, CancellationToken cancellationToken)
+    internal static async Task<int> ControlAsync(string action, CancellationToken cancellationToken)
     {
         using var process = new Process { StartInfo = StartInfo() };
         process.StartInfo.ArgumentList.Add("--cg");

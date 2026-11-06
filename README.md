@@ -55,6 +55,8 @@ dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o 
 
 `SERVICE_NAME` обязателен и непустой. `Runner__WorkspaceRoot` переопределяет `Runner:WorkspaceRoot` из `appsettings.json`; по умолчанию `/var/lib/runner-agent`. Подготовьте существующий доступный на запись каталог; корень файловой системы не допускается. При старте создаётся и сразу удаляется уникальный probe-файл; чужие файлы и каталоги не очищаются. Собственные workspace появятся на следующем этапе. JSON читается рядом со сборкой, изменения настроек требуют перезапуска.
 
+Команды ниже требуют Linux amd64 и предварительно подготовленного sandbox (`tests/prototype/environment.sh` внутри приватного privileged контейнера). Обычный запуск в Windows теперь завершается ошибкой до открытия сервера; Windows используется для разработки и host-тестов с заменой внешней среды.
+
 Linux:
 
 ```sh
@@ -62,14 +64,7 @@ mkdir -p /tmp/runner-agent-workspace
 SERVICE_NAME=runner-agent-cpp-23 Runner__WorkspaceRoot=/tmp/runner-agent-workspace dotnet artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll
 ```
 
-PowerShell:
-
-```powershell
-New-Item -ItemType Directory -Force artifacts/workspace | Out-Null
-$env:SERVICE_NAME = 'runner-agent-cpp-23'
-$env:Runner__WorkspaceRoot = (Resolve-Path artifacts/workspace).Path
-dotnet run --project src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-build
-```
+В PowerShell запускайте Linux-проверки через `powershell -NoProfile -File tests/prototype/run.ps1` с запущенным Docker Desktop.
 
 Остановка — Ctrl+C, в Linux также SIGTERM. Штатный выход даёт 0. По решению пользователя общий catch в entry point отсутствует: ошибка старта пока остаётся обычным исключением .NET с ненулевым кодом, без нормализации к 1; управляемые коды выхода будут реализованы в задаче 6.5. HTTP/2 endpoint по умолчанию `http://0.0.0.0:8080`; `ASPNETCORE_URLS`/`Urls` позволяют его переопределить. RPC и health ещё отсутствуют.
 
@@ -79,7 +74,7 @@ dotnet run --project src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-build
 sh scripts/smoke.sh artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll
 ```
 
-Smoke проверяет отсутствие/пустой `SERVICE_NAME`, некорректный workspace, успешный запуск и SIGTERM с кодом 0, сохранность постороннего файла и отсутствие оставшихся probes. Он не требует privileged Docker, MinIO или isolate. Проверка прошла также в `mcr.microsoft.com/dotnet/aspnet:10.0.14` на linux/amd64.
+Полный smoke проверяет конфигурацию, startup-пробник isolate до открытия сервера, SIGTERM с кодом 0 и сохранность посторонних файлов. Для него требуется подготовленная privileged Linux amd64 среда; он входит в `tests/prototype/run.ps1`. На обычном Linux CI выполняется `sh scripts/smoke.sh artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll configuration`: ошибки конфигурации и отказ до старта в несовместимой среде.
 
 Базовый CI запускается на push `master`, собирает Release, выполняет тесты и smoke, сохраняет доступные отчёты даже при неуспехе. Отдельный AOT job информационный; production остаётся JIT. Запуск реального GitHub workflow и linux-x64 AOT пока не проверены: origin остаётся Gitea, перенос выполняет пользователь. Публикация образа ещё не подключена.
 
@@ -107,6 +102,6 @@ Stdout/stderr независимо ограничиваются при чтен�
 
 Для каждой стадии выставляются `memory.oom.group=1` и `pids.max`, isolate отключает swap. Причины выбираются по подтверждённым событиям/метрикам, один сигнал не доказывает превышение. При отмене выполняются cgroup.kill и SIGTERM keeper, чтобы isolate завершил и собрал proxy-процессы; cleanup не использует отменённый токен. Source-generated POSIX interop требует `AllowUnsafeBlocks` только в host-проекте. Ошибка cleanup помечает среду непригодной и запрещает следующие вызовы локального sandbox; автоматическое завершение всего агента будет подключено вместе с orchestration.
 
-Проверены 39 автономных тестов и Linux-сценарии `Sandbox`: одна компиляция/порядок/независимые файлы, compilation error, CPU дочернего процесса, независимый wall time, групповой OOM, процессы/потоки с обработанным отказом, два потока вывода, UID/environment/proc/network isolation и отмена без оставшихся box/cgroup/proxy. Полная приёмка AT-01–AT-79, автоматическая startup-проверка, gRPC, MinIO, crash recovery и production CI пока не завершены.
+Проверены 39 автономных тестов и Linux-сценарии `Sandbox`: одна компиляция/порядок/независимые файлы, compilation error, CPU дочернего процесса, независимый wall time, групповой OOM, процессы/потоки с обработанным отказом, два потока вывода, UID/environment/proc/network isolation и отмена без оставшихся box/cgroup/proxy. Startup-проверка cgroups v2, обязательных интерфейсов, swap/OOM/pids, блокировки агента и пробного isolate-процесса выполняется до открытия сервера. Полная приёмка AT-01–AT-79, gRPC, MinIO, crash recovery и production CI пока не завершены.
 
 При выборе параметров toolchain ориентируемся на [настройки Яндекс Контеста](https://contest.yandex.ru/docs/ru/compilers). Общее правило `ONLINE_JUDGE` и порядок адаптации параметров зафиксированы в [архитектуре](ARCHITECTURE.md#8-внутренние-компоненты).

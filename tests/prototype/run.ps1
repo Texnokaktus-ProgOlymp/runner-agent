@@ -16,6 +16,8 @@ try {
 ulimit -c 0
 sed 's/\r$//' /repo/tests/prototype/environment.sh > /tmp/runner-agent-environment.sh
 . /tmp/runner-agent-environment.sh
+sed 's/\r$//' /repo/scripts/smoke.sh > /tmp/runner-agent-smoke.sh
+sh /tmp/runner-agent-smoke.sh /app/Texnokaktus.ProgOlymp.RunnerAgent.dll
 cd /repo
 dotnet /repo/tests/Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests/bin/Release/net10.0/Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests.dll --filter TestCategory=Sandbox --report-trx --results-directory /results
 '@

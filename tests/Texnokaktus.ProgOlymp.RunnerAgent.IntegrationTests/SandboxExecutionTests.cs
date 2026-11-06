@@ -406,9 +406,9 @@ public sealed class SandboxExecutionTests : SetupBase
 
         try
         {
-            var compilerNamespace = await ObserveProcessAsync("/usr/bin/g++", task);
-            var solutionNamespace = await ObserveProcessAsync("/box/solution", task);
-            Assert.That(compilerNamespace, Is.Not.EqualTo(solutionNamespace));
+            using var compilerNamespace = await ObserveProcessAsync("/usr/bin/g++", task);
+            using var solutionNamespace = await ObserveProcessAsync("/box/solution", task);
+            Assert.That(compilerNamespace.Id, Is.Not.EqualTo(solutionNamespace.Id));
         }
         finally
         {
@@ -426,7 +426,12 @@ public sealed class SandboxExecutionTests : SetupBase
         }
     }
 
-    private static async Task<string> ObserveProcessAsync(string executable, Task job)
+    private sealed record ObservedNamespace(string Id, FileStream Lease) : IDisposable
+    {
+        public void Dispose() => Lease.Dispose();
+    }
+
+    private static async Task<ObservedNamespace> ObserveProcessAsync(string executable, Task job)
     {
         var timeout = Stopwatch.StartNew();
 
@@ -461,7 +466,8 @@ public sealed class SandboxExecutionTests : SetupBase
                         Is.Not.Null.And.Not.EqualTo(new FileInfo("/proc/self/ns/net").LinkTarget)
                     );
 
-                    return networkNamespace!;
+                    // Keep the namespace alive: its inode may be reused after the stage exits.
+                    return new(networkNamespace!, File.OpenRead(Path.Combine(processRoot, "ns/net")));
                 }
             }
             catch (IOException)

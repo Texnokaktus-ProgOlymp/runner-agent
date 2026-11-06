@@ -1,5 +1,5 @@
 #!/bin/sh
-# Smoke the real Linux process. No MinIO, isolate, credentials or privileged mode needed.
+# Smoke the real Linux process; full mode requires an initialized sandbox.
 set -eu
 ulimit -c 0
 dll=$(realpath "${1:?Usage: smoke.sh /path/to/RunnerAgent.dll}")
@@ -31,6 +31,17 @@ expect_start_failure env -u SERVICE_NAME dotnet "$dll"
 expect_start_failure env SERVICE_NAME=' ' dotnet "$dll"
 expect_start_failure env SERVICE_NAME=runner-agent-cpp-23 Runner__WorkspaceRoot=relative dotnet "$dll"
 expect_start_failure env SERVICE_NAME=runner-agent-cpp-23 Runner__WorkspaceRoot="$scratch/missing" dotnet "$dll"
+
+if [ "${2:-sandbox}" = configuration ]; then
+    set +e
+    env SERVICE_NAME=runner-agent-cpp-23 Runner__WorkspaceRoot="$scratch/workspace" dotnet "$dll" > "$scratch/sandbox-failure.log" 2>&1
+    code=$?
+    set -e
+    [ "$code" -ne 0 ]
+    ! grep -q 'Application started' "$scratch/sandbox-failure.log"
+    echo 'Configuration smoke passed; incompatible sandbox rejected before serving.'
+    exit 0
+fi
 env SERVICE_NAME=runner-agent-cpp-23 Runner__WorkspaceRoot="$scratch/workspace" \
     ASPNETCORE_URLS=http://127.0.0.1:0 dotnet "$dll" > "$scratch/host.log" 2>&1 &
 child=$!
@@ -58,6 +69,7 @@ done
 wait "$child"
 child=
 grep -q '^preserve$' "$scratch/workspace/unrelated.txt"
-[ "$(find "$scratch/workspace" -mindepth 1 | wc -l)" -eq 1 ]
+[ "$(find "$scratch/workspace" -type f | wc -l)" -eq 1 ]
+[ -z "$(find "$scratch/workspace/runner-agent-jobs" -mindepth 1)" ]
 [ ! -e "$scratch/missing" ]
 echo 'Smoke passed: startup, invalid configuration, SIGTERM exit 0, existing files preserved.'
