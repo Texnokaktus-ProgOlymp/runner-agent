@@ -32,6 +32,7 @@ internal sealed class IsolateSandbox
         var stderr = Path.Combine(artifacts, "stderr.txt");
         var metadata = Path.Combine(artifacts, "isolate.meta");
         var started = false;
+        var initializationAttempted = false;
         var executionStarted = false;
         var reusable = true;
         var outputExceeded = 0;
@@ -40,11 +41,126 @@ internal sealed class IsolateSandbox
         TerminationReason? reason = null;
         Process? process = null;
         Task? stdoutCopy = null, stderrCopy = null;
+        FileStream? stdoutFile = null, stderrFile = null;
+        var collected = false;
+
+        void TryCollect(Action read, string code)
+        {
+            try
+            {
+                read();
+            }
+            catch (Exception exception) when (exception is IOException
+                                                        or UnauthorizedAccessException
+                                                        or FormatException
+                                                        or OverflowException
+                                                        or ArgumentException
+                                                        or KeyNotFoundException)
+            {
+                diagnostics.Add(new(stage, code));
+            }
+        }
+
+        void CollectMeasurements()
+        {
+            if (collected || !started || process is null || !process.HasExited) return;
+
+            collected = true;
+
+            if (process.ExitCode == 0)
+            {
+                executionStarted = true;
+                exitCode = 0;
+            }
+
+            TryCollect(
+                () => cpu = ReadPairs(Path.Combine(Cgroup, "cpu.stat"))["usage_usec"] / 1000,
+                "cpu_metric_unavailable"
+            );
+
+            TryCollect(() => peak = ReadNonNegative(Path.Combine(Cgroup, "memory.peak")), "memory_peak_unavailable");
+            TryCollect(() => applied = ReadNonNegative(Path.Combine(Cgroup, "memory.max")), "memory_limit_unavailable");
+
+            if (applied is not null && applied != limits.AppliedMemoryBytes)
+                diagnostics.Add(new(stage, "memory_limit_not_applied"));
+
+            var values = new Dictionary<string, string>(StringComparer.Ordinal);
+
+            TryCollect(
+                () => values = File.ReadAllLines(metadata)
+                                   .Select(line => line.Split(':', 2))
+                                   .Where(parts => parts.Length == 2)
+                                   .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal),
+                "metadata_unavailable"
+            );
+
+            if (values.TryGetValue("time-wall", out var wallValue))
+                TryCollect(
+                    () =>
+                    {
+                        var measured = checked((long)(decimal.Parse(wallValue, CultureInfo.InvariantCulture) * 1000));
+
+                        if (measured < 0) throw new FormatException("Invalid monotonic wall time.");
+
+                        wall = measured;
+                    },
+                    "wall_metric_unavailable"
+                );
+
+            if (values.TryGetValue("exitcode", out var exitValue))
+                TryCollect(
+                    () => exitCode = int.Parse(exitValue, CultureInfo.InvariantCulture),
+                    "exit_code_unavailable"
+                );
+
+            if (values.TryGetValue("exitsig", out var signalValue))
+                TryCollect(() => signal = int.Parse(signalValue, CultureInfo.InvariantCulture), "signal_unavailable");
+
+            executionStarted |=
+                exitCode is not null || signal is not null || values.GetValueOrDefault("status") == "TO";
+
+            long? oomKills = null, blockedProcesses = null;
+
+            TryCollect(
+                () => oomKills = ReadPairs(Path.Combine(Cgroup, "memory.events"))["oom_kill"],
+                "oom_events_unavailable"
+            );
+
+            TryCollect(
+                () => blockedProcesses = ReadPairs(Path.Combine(Cgroup, "pids.events"))["max"],
+                "pids_events_unavailable"
+            );
+
+            violations.AddRange(
+                TerminationClassifier.Classify(
+                    limits,
+                    cpu,
+                    wall,
+                    oomKills,
+                    outputExceeded != 0,
+                    blockedProcesses,
+                    exitCode,
+                    signal
+                )
+            );
+
+            reason = violations.Count != 0 ? violations[0] : exitCode == 0 ? TerminationReason.Success : null;
+
+            if (process.ExitCode is not (0 or 1)
+             || values.GetValueOrDefault("status") == "XX"
+             || wall is null
+             || reason is null)
+                diagnostics.Add(new(stage, "sandbox_result_incomplete"));
+        }
 
         try
         {
             cancellationToken.ThrowIfCancellationRequested();
             Directory.CreateDirectory(artifacts);
+            stdoutFile = File.Create(stdout);
+            stderrFile = File.Create(stderr);
+
+            initializationAttempted = true;
 
             if (await ControlAsync("--init", cancellationToken) != 0)
                 throw new InvalidOperationException("isolate initialization failed.");
@@ -71,7 +187,6 @@ internal sealed class IsolateSandbox
                 cancellationToken
             );
 
-            applied = limits.AppliedMemoryBytes;
             process = new Process { StartInfo = StartInfo() };
 
             var arguments = new[]
@@ -80,7 +195,7 @@ internal sealed class IsolateSandbox
                 "--box-id=0",
                 "--silent",
                 "--processes",
-                $"--cg-mem={applied / 1024}",
+                $"--cg-mem={limits.AppliedMemoryBytes / 1024}",
                 $"--time={Seconds(limits.CpuTimeMs)}",
                 $"--wall-time={Seconds(limits.WallTimeMs)}",
                 $"--meta={metadata}",
@@ -115,8 +230,23 @@ internal sealed class IsolateSandbox
                     KillGroup();
             }
 
-            stdoutCopy = CaptureAsync(process.StandardOutput.BaseStream, stdout, limits.StdoutBytes, OnOutputExceeded);
-            stderrCopy = CaptureAsync(process.StandardError.BaseStream, stderr, limits.StderrBytes, OnOutputExceeded);
+            stdoutCopy = CaptureAsync(
+                process.StandardOutput.BaseStream,
+                stdoutFile,
+                limits.StdoutBytes,
+                OnOutputExceeded
+            );
+
+            stdoutFile = null;
+
+            stderrCopy = CaptureAsync(
+                process.StandardError.BaseStream,
+                stderrFile,
+                limits.StderrBytes,
+                OnOutputExceeded
+            );
+
+            stderrFile = null;
             var exited = process.WaitForExitAsync(CancellationToken.None);
 
             while (!exited.IsCompleted)
@@ -133,7 +263,9 @@ internal sealed class IsolateSandbox
                     break;
                 }
 
-                if (ReadPairs(Path.Combine(Cgroup, "pids.events")).GetValueOrDefault("max") > 0)
+                if (stdoutCopy.IsFaulted
+                 || stderrCopy.IsFaulted
+                 || ReadPairs(Path.Combine(Cgroup, "pids.events")).GetValueOrDefault("max") > 0)
                     KillGroup();
 
                 await Task.WhenAny(exited, Task.Delay(10, CancellationToken.None));
@@ -148,66 +280,18 @@ internal sealed class IsolateSandbox
                 reason = TerminationReason.Success;
             }
 
-            await Task.WhenAll(stdoutCopy, stderrCopy);
+            try
+            {
+                await Task.WhenAll(stdoutCopy, stderrCopy);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                diagnostics.Add(new(stage, "output_capture_failed"));
+            }
+
             cancellationToken.ThrowIfCancellationRequested();
 
-            cpu = ReadPairs(Path.Combine(Cgroup, "cpu.stat"))["usage_usec"] / 1000;
-
-            peak = long.Parse(
-                await File.ReadAllTextAsync(Path.Combine(Cgroup, "memory.peak"), cancellationToken),
-                CultureInfo.InvariantCulture
-            );
-
-            applied = long.Parse(
-                await File.ReadAllTextAsync(Path.Combine(Cgroup, "memory.max"), cancellationToken),
-                CultureInfo.InvariantCulture
-            );
-
-            if (applied != limits.AppliedMemoryBytes)
-                diagnostics.Add(new(stage, "memory_limit_not_applied"));
-
-            var values = (await File.ReadAllLinesAsync(metadata, cancellationToken))
-                        .Select(line => line.Split(':', 2))
-                        .Where(parts => parts.Length == 2)
-                        .ToDictionary(parts => parts[0], parts => parts[1], StringComparer.Ordinal);
-
-            if (values.TryGetValue("time-wall", out var wallValue))
-                wall = checked((long)(decimal.Parse(wallValue, CultureInfo.InvariantCulture) * 1000));
-
-            if (values.TryGetValue("exitcode", out var exitValue))
-                exitCode = int.Parse(exitValue, CultureInfo.InvariantCulture);
-
-            if (values.TryGetValue("exitsig", out var signalValue))
-                signal = int.Parse(signalValue, CultureInfo.InvariantCulture);
-
-            executionStarted |=
-                exitCode is not null || signal is not null || values.GetValueOrDefault("status") == "TO";
-
-            if (ReadPairs(Path.Combine(Cgroup, "memory.events")).GetValueOrDefault("oom_kill") > 0)
-                violations.Add(TerminationReason.MemoryLimitExceeded);
-
-            if (outputExceeded != 0)
-                violations.Add(TerminationReason.OutputLimitExceeded);
-
-            if (cpu > limits.CpuTimeMs)
-                violations.Add(TerminationReason.CpuTimeLimitExceeded);
-
-            if (wall > limits.WallTimeMs)
-                violations.Add(TerminationReason.WallTimeLimitExceeded);
-
-            if (ReadPairs(Path.Combine(Cgroup, "pids.events")).GetValueOrDefault("max") > 0)
-                violations.Add(TerminationReason.ProcessLimitExceeded);
-
-            if (signal is not null || exitCode is not (null or 0))
-                violations.Add(TerminationReason.RuntimeError);
-
-            reason = violations.Count != 0 ? violations[0] : exitCode == 0 ? TerminationReason.Success : null;
-
-            if (process.ExitCode is not (0 or 1)
-             || values.GetValueOrDefault("status") == "XX"
-             || wall is null
-             || reason is null)
-                diagnostics.Add(new(stage, "sandbox_result_incomplete"));
+            CollectMeasurements();
 
             if (reason == TerminationReason.Success && executable is not null && diagnostics.Count == 0)
             {
@@ -238,7 +322,7 @@ internal sealed class IsolateSandbox
         {
             try
             {
-                KillGroup();
+                if (initializationAttempted) KillGroup();
 
                 if (process is not null && started && !process.HasExited)
                 {
@@ -257,17 +341,24 @@ internal sealed class IsolateSandbox
 
             try
             {
+                if (stdoutFile is not null) await stdoutFile.DisposeAsync();
+                if (stderrFile is not null) await stderrFile.DisposeAsync();
+
                 if (stdoutCopy is not null && stderrCopy is not null)
                     await Task.WhenAll(stdoutCopy, stderrCopy);
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                diagnostics.Add(new(stage, "output_capture_failed"));
+                if (!diagnostics.Any(item => item.Code == "output_capture_failed"))
+                    diagnostics.Add(new(stage, "output_capture_failed"));
             }
+
+            CollectMeasurements();
 
             try
             {
-                if (await ControlAsync("--cleanup", CancellationToken.None) != 0 || Directory.Exists(Cgroup))
+                if (initializationAttempted
+                 && (await ControlAsync("--cleanup", CancellationToken.None) != 0 || Directory.Exists(Cgroup)))
                 {
                     reusable = false;
                     diagnostics.Add(new(stage, "sandbox_cleanup_failed"));
@@ -424,9 +515,18 @@ internal sealed class IsolateSandbox
             File.SetUnixFileMode(destination, File.GetUnixFileMode(source));
     }
 
-    private static async Task CaptureAsync(Stream input, string path, long limit, Action exceeded)
+    private static long ReadNonNegative(string path) => ParseNonNegative(File.ReadAllText(path));
+
+    private static long ParseNonNegative(string text)
     {
-        await using var output = File.Create(path);
+        var value = long.Parse(text, CultureInfo.InvariantCulture);
+
+        return value >= 0 ? value : throw new FormatException("Invalid resource counter.");
+    }
+
+    private static async Task CaptureAsync(Stream input, FileStream output, long limit, Action exceeded)
+    {
+        await using var ownedOutput = output;
         var buffer = new byte[16384];
         long written = 0;
         int read;
@@ -434,7 +534,7 @@ internal sealed class IsolateSandbox
         while ((read = await input.ReadAsync(buffer, CancellationToken.None)) != 0)
         {
             var allowed = (int)Math.Min(read, limit - written);
-            await output.WriteAsync(buffer.AsMemory(0, allowed), CancellationToken.None);
+            await ownedOutput.WriteAsync(buffer.AsMemory(0, allowed), CancellationToken.None);
             written += allowed;
 
             if (allowed != read)

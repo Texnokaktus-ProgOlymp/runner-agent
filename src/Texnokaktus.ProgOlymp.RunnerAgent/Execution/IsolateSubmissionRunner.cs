@@ -78,7 +78,9 @@ internal sealed class IsolateSubmissionRunner(ILanguageProvider language, Isolat
 
                 return new(
                     submission.JobId,
-                    SubmissionStatus.InfrastructureError,
+                    tests.Count == submission.Tests.Count
+                        ? SubmissionStatus.Completed
+                        : SubmissionStatus.InfrastructureError,
                     compilation.Execution,
                     tests,
                     diagnostics,

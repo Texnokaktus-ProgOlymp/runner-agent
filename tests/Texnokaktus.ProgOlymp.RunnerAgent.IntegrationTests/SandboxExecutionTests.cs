@@ -236,11 +236,13 @@ public sealed class SandboxExecutionTests : SetupBase
         );
     }
 
-    [Test]
-    public async Task BoundsBothStreamsAndPreservesTheirPrefixes()
+    [TestCase(1)]
+    [TestCase(2)]
+    public async Task BoundsBothStreamsAndPreservesTheirPrefixes(int descriptor)
     {
-        const string source =
-            "#include <unistd.h>\nint main(){write(2,\"err\",3);write(1,\"out\",3);for(;;)write(1,\"0123456789\",10);}";
+        var source = "#include <unistd.h>\nint main(){write(2,\"err\",3);write(1,\"out\",3);for(;;)write("
+                   + descriptor
+                   + ",\"0123456789\",10);}";
 
         using var workspace = Factory.Services.GetRequiredService<WorkspaceManager>().Create(4);
 
@@ -261,10 +263,180 @@ public sealed class SandboxExecutionTests : SetupBase
                     Is.All.EqualTo(TerminationReason.OutputLimitExceeded)
                 );
 
-                Assert.That(result.Tests.All(test => new FileInfo(test.Execution!.StdoutPath!).Length == 16), Is.True);
-                Assert.That(result.Tests.All(test => File.ReadAllText(test.Execution!.StderrPath!) == "err"), Is.True);
+                Assert.That(
+                    result.Tests.All(test => new FileInfo(test.Execution!.StdoutPath!).Length
+                                          == (descriptor == 1 ? 16 : 3)
+                    ),
+                    Is.True
+                );
+
+                Assert.That(
+                    result.Tests.All(test => new FileInfo(test.Execution!.StderrPath!).Length
+                                          == (descriptor == 2 ? 8 : 3)
+                    ),
+                    Is.True
+                );
+
+                Assert.That(
+                    result.Tests.All(test => File.ReadAllText(test.Execution!.StdoutPath!)
+                                                 .StartsWith("out", StringComparison.Ordinal)
+                    ),
+                    Is.True
+                );
+
+                Assert.That(
+                    result.Tests.All(test => File.ReadAllText(test.Execution!.StderrPath!)
+                                                 .StartsWith("err", StringComparison.Ordinal)
+                    ),
+                    Is.True
+                );
             }
         );
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task CompilerOutputLimitStopsBeforeTests(bool stdout)
+    {
+        const string stdoutSource =
+            """asm(".print \"abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz\""); int main() {}""";
+
+        const string stderrSource = "#error abcdefghijklmnopqrstuvwxyz0123456789abcdefghijklmnopqrstuvwxyz";
+        using var workspace = Factory.Services.GetRequiredService<WorkspaceManager>().Create(10);
+
+        var submission = CreateSubmission(workspace, stdout ? stdoutSource : stderrSource, ExecutionLimits) with
+        {
+            CompilationLimits = CompilationLimits with
+            {
+                StdoutBytes = stdout ? 16 : 1024,
+                StderrBytes = stdout ? 1024 : 16
+            }
+        };
+
+        var result = await Runner.RunAsync(submission, CancellationToken.None);
+
+        Assert.Multiple(() =>
+            {
+                Assert.That(result.Status, Is.EqualTo(SubmissionStatus.CompilationError));
+                Assert.That(result.Compilation?.Reason, Is.EqualTo(TerminationReason.OutputLimitExceeded));
+                Assert.That(result.Tests, Is.Empty);
+
+                Assert.That(
+                    new FileInfo(stdout ? result.Compilation!.StdoutPath! : result.Compilation!.StderrPath!).Length,
+                    Is.EqualTo(16)
+                );
+
+                Assert.That(File.Exists(result.Compilation!.StdoutPath!), Is.True);
+                Assert.That(File.Exists(result.Compilation.StderrPath!), Is.True);
+            }
+        );
+    }
+
+    [Test]
+    public async Task SumOfStreamsDoesNotReplaceTheirIndividualLimits()
+    {
+        using var workspace = Factory.Services.GetRequiredService<WorkspaceManager>().Create(11);
+        const string source = "#include <unistd.h>\nint main(){write(1,\"12345678\",8);write(2,\"12345678\",8);}";
+
+        var result = await Runner.RunAsync(
+                         CreateSubmission(
+                             workspace,
+                             source,
+                             ExecutionLimits with
+                             {
+                                 StdoutBytes = 10,
+                                 StderrBytes = 10
+                             }
+                         ),
+                         CancellationToken.None
+                     );
+
+        Assert.That(result.Tests.Select(test => test.Execution?.Reason), Is.All.EqualTo(TerminationReason.Success));
+    }
+
+    [Test]
+    public async Task FailedOutputPreparationHasNoExecutionAndDoesNotAbortOtherTests()
+    {
+        using var workspace = Factory.Services.GetRequiredService<WorkspaceManager>().Create(12);
+        Directory.CreateDirectory(Path.Combine(workspace.Path, "tests", "8", "stdout.txt"));
+
+        var result = await Runner.RunAsync(
+                         CreateSubmission(workspace, "int main(){}", ExecutionLimits),
+                         CancellationToken.None
+                     );
+
+        Assert.Multiple(() =>
+            {
+                Assert.That(result.Status, Is.EqualTo(SubmissionStatus.Completed));
+                Assert.That(result.Tests, Has.Count.EqualTo(3));
+                Assert.That(result.Tests[0].InfrastructureError, Is.True);
+                Assert.That(result.Tests[0].Execution, Is.Null);
+
+                Assert.That(
+                    result.Tests.Skip(1).Select(test => test.Execution?.Reason),
+                    Is.All.EqualTo(TerminationReason.Success)
+                );
+
+                Assert.That(result.EnvironmentReusable, Is.True);
+            }
+        );
+    }
+
+    [Test]
+    public async Task MissingMetadataPreservesOtherMetricsAndKnownExit()
+    {
+        using var workspace = Factory.Services.GetRequiredService<WorkspaceManager>().Create(13);
+        using var cancellation = new CancellationTokenSource();
+
+        var job = Runner.RunAsync(
+            CreateSubmission(workspace, "#include <unistd.h>\nint main(){sleep(1);}", ExecutionLimits),
+            cancellation.Token
+        );
+
+        try
+        {
+            var metadata = Path.Combine(workspace.Path, "tests", "8", "isolate.meta");
+            var timeout = Stopwatch.StartNew();
+
+            while (!File.Exists(metadata))
+            {
+                if (job.IsCompleted || timeout.Elapsed > TimeSpan.FromSeconds(20))
+                    Assert.Fail("The test stage was not observed.");
+
+                await Task.Delay(5);
+            }
+
+            File.Delete(metadata);
+            var result = await job;
+
+            Assert.Multiple(() =>
+                {
+                    Assert.That(result.Status, Is.EqualTo(SubmissionStatus.Completed));
+                    Assert.That(result.Tests[0].InfrastructureError, Is.True);
+                    Assert.That(result.Tests[0].Execution?.ExitCode, Is.EqualTo(0));
+                    Assert.That(result.Tests[0].Execution?.WallTimeMs, Is.Null);
+                    Assert.That(result.Tests[0].Execution?.CpuTimeMs, Is.Not.Null);
+                    Assert.That(result.Tests[0].Execution?.PeakMemoryBytes, Is.Not.Null);
+
+                    Assert.That(
+                        result.Tests.Skip(1).Select(test => test.Execution?.Reason),
+                        Is.All.EqualTo(TerminationReason.Success)
+                    );
+                }
+            );
+        }
+        finally
+        {
+            await cancellation.CancelAsync();
+
+            try
+            {
+                await job;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+        }
     }
 
     [Test]
@@ -279,6 +451,7 @@ public sealed class SandboxExecutionTests : SetupBase
         var source = $$"""
                        #include <cstdlib>
                        #include <cstring>
+                       #include <fcntl.h>
                        #include <fstream>
                        #include <unistd.h>
                        #include <sys/socket.h>
@@ -286,7 +459,11 @@ public sealed class SandboxExecutionTests : SetupBase
                        #if !defined(ONLINE_JUDGE) || ONLINE_JUDGE != 1
                        #error ONLINE_JUDGE must be defined as 1
                        #endif
+                       #if __has_include("/app/appsettings.json") || __has_include("/repo/ARCHITECTURE.md") || __has_include("/proc/1/root/app/appsettings.json")
+                       #error Agent files must not be visible to the compiler
+                       #endif
                        int main() {
+                           for (int fd = 3; fd < 256; ++fd) if (fcntl(fd, F_GETFD) >= 0) return 17;
                            const char* judge = getenv("ONLINE_JUDGE");
                            if (!judge || std::strcmp(judge, "1") != 0) return 16;
                            if (!geteuid()) return 10;
@@ -393,6 +570,100 @@ public sealed class SandboxExecutionTests : SetupBase
 
     private static ISubmissionRunner Runner => Factory.Services.GetRequiredService<ISubmissionRunner>();
 
+    [TestCase(8, SubmissionStatus.InfrastructureError, 1)]
+    [TestCase(5, SubmissionStatus.Completed, 3)]
+    public async Task CleanupFailurePreservesResultsAndRejectsReuse(int failedTest, SubmissionStatus status, int count)
+    {
+        await using var factory =
+            new Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests.Tools.CustomWebApplicationFactory();
+
+        using var workspace = factory.Services.GetRequiredService<WorkspaceManager>().Create(14);
+        var runner = factory.Services.GetRequiredService<ISubmissionRunner>();
+        using var cancellation = new CancellationTokenSource();
+        var submission = CreateSubmission(workspace, "#include <unistd.h>\nint main(){sleep(1);}", ExecutionLimits);
+        var job = runner.RunAsync(submission, cancellation.Token);
+        const string isolate = "/usr/bin/isolate";
+        const string saved = "/usr/bin/isolate.cleanup-test";
+        var moved = false;
+
+        try
+        {
+            var metadata = Path.Combine(
+                workspace.Path,
+                "tests",
+                failedTest.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                "isolate.meta"
+            );
+
+            var timeout = Stopwatch.StartNew();
+
+            while (!File.Exists(metadata))
+            {
+                if (job.IsCompleted || timeout.Elapsed > TimeSpan.FromSeconds(30))
+                    Assert.Fail("The selected stage was not observed.");
+
+                await Task.Delay(5);
+            }
+
+            File.Move(isolate, saved);
+            moved = true;
+            var result = await job;
+
+            Assert.Multiple(() =>
+                {
+                    Assert.That(result.Status, Is.EqualTo(status));
+                    Assert.That(result.Tests, Has.Count.EqualTo(count));
+                    Assert.That(result.Tests[^1].Execution?.Reason, Is.EqualTo(TerminationReason.Success));
+                    Assert.That(result.Tests[^1].InfrastructureError, Is.True);
+                    Assert.That(result.EnvironmentReusable, Is.False);
+                }
+            );
+
+            Assert.ThrowsAsync<SandboxCleanupException>(async () => await runner.RunAsync(
+                                                                        submission,
+                                                                        CancellationToken.None
+                                                                    )
+            );
+        }
+        finally
+        {
+            if (moved) File.Move(saved, isolate);
+            await cancellation.CancelAsync();
+
+            try
+            {
+                await job;
+            }
+            catch (OperationCanceledException)
+            {
+            }
+
+            if (Directory.Exists("/var/lib/isolate/0"))
+            {
+                using var cleanup = Process.Start(
+                    new ProcessStartInfo(isolate)
+                    {
+                        UseShellExecute = false,
+                        ArgumentList =
+                        {
+                            "--cg",
+                            "--box-id=0",
+                            "--cleanup"
+                        },
+                        RedirectStandardOutput = true,
+                        RedirectStandardError = true
+                    }
+                )!;
+
+                var output = cleanup.StandardOutput.ReadToEndAsync();
+                var error = cleanup.StandardError.ReadToEndAsync();
+                await cleanup.WaitForExitAsync();
+                await Task.WhenAll(output, error);
+                Assert.That(cleanup.ExitCode, Is.Zero);
+            }
+        }
+    }
+
     [Test]
     public async Task CompilerAndSolutionHaveSeparateNamespacesAndCleanEnvironment()
     {
@@ -459,6 +730,15 @@ public sealed class SandboxExecutionTests : SetupBase
 
                     Assert.That(environmentKeys, Is.SubsetOf(AllowedEnvironment));
                     Assert.That(environment, Does.Contain("ONLINE_JUDGE=1"));
+
+                    foreach (var descriptor in Directory.EnumerateFiles(Path.Combine(processRoot, "fd")))
+                    {
+                        var target = new FileInfo(descriptor).LinkTarget;
+                        Assert.That(target, Does.Not.Contain(SetupGlobal.WorkspaceRoot));
+                        Assert.That(target, Does.Not.StartWith("/app/"));
+                        Assert.That(target, Does.Not.StartWith("/repo/"));
+                    }
+
                     var networkNamespace = new FileInfo(Path.Combine(processRoot, "ns/net")).LinkTarget;
 
                     Assert.That(
