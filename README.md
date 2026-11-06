@@ -2,7 +2,7 @@
 
 Агент проверяющей системы для компиляции и исполнения олимпиадных решений в isolate. Первый MVP рассчитан на C++23: один исходный файл компилируется один раз, тесты выполняются последовательно в отдельных песочницах с независимыми лимитами.
 
-**Состояние проекта:** реализация MVP начата. Создан независимый .NET 10 каркас: host с platform/OpenTelemetry, проверка конфигурации workspace, NUnit/MTP-тесты, smoke реального Linux-процесса и базовый GitHub Actions. Добавлен локальный isolate-runner и тестовый Docker-образ; RunJob, MinIO, production Dockerfile и публикация образа ещё не реализованы. Host пока не принимает задания по API; полная приёмка sandbox не завершена.
+**Состояние проекта:** реализация MVP начата. Создан независимый .NET 10 каркас: host с platform/OpenTelemetry, проверка конфигурации workspace, NUnit/MTP-тесты, smoke реального Linux-процесса и базовый GitHub Actions. Добавлен локальный isolate-runner и тестовый Docker-образ; Базовый и производный C++ Dockerfile созданы; RunJob, MinIO и публикация образов ещё не реализованы. Host пока не принимает задания по API; полная приёмка sandbox не завершена.
 
 ## Документация
 
@@ -105,3 +105,18 @@ Stdout/stderr независимо ограничиваются при чтен�
 Проверены 39 автономных тестов и Linux-сценарии `Sandbox`: одна компиляция/порядок/независимые файлы, compilation error, CPU дочернего процесса, независимый wall time, групповой OOM, процессы/потоки с обработанным отказом, два потока вывода, UID/environment/proc/network isolation и отмена без оставшихся box/cgroup/proxy. Startup-проверка cgroups v2, обязательных интерфейсов, swap/OOM/pids, блокировки агента и пробного isolate-процесса выполняется до открытия сервера. Полная приёмка AT-01–AT-79, gRPC, MinIO, crash recovery и production CI пока не завершены.
 
 При выборе параметров toolchain ориентируемся на [настройки Яндекс Контеста](https://contest.yandex.ru/docs/ru/compilers). Общее правило `ONLINE_JUDGE` и порядок адаптации параметров зафиксированы в [архитектуре](ARCHITECTURE.md#8-внутренние-компоненты).
+
+## Базовый и языковые образы
+
+`docker/base/Dockerfile` содержит Ubuntu/.NET runtime, isolate, агент и общий bootstrap. Компилятор и профиль в базе отсутствуют. `docker/cpp23/Dockerfile` наследуется от проверенной базы, устанавливает g++ и добавляет `appsettings.Production.json` с секцией `LanguageProfile`.
+
+```powershell
+dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o artifacts/host
+docker build -f docker/base/Dockerfile -t runner-agent-base:local .
+docker build -f docker/cpp23/Dockerfile --build-arg BASE_IMAGE=runner-agent-base:local -t runner-agent-cpp-23:local .
+docker run --rm --privileged --cgroupns=private -e SERVICE_NAME=runner-agent-cpp-23 -p 8080:8080 runner-agent-cpp-23:local
+```
+
+Профиль задаёт язык/версию, имена файлов и команды с массивами аргументов; shell для команд компиляции/исполнения не используется. Общий ConfiguredLanguageProvider сохраняет snapshot профиля при старте. Для другого environment требуется соответствующий `appsettings.<Environment>.json` с профилем либо настройки окружения; стандартный environment образа — Production. База без профиля не запускает worker. Профиль содержит только доверенные настройки образа: credentials остаются вне него, запрос RunJob не может менять команды.
+
+Драйвер `tests/prototype/run.ps1` собирает оба образа, проверяет отсутствие компилятора в базе и выполняет сценарии на производном C++23 образе. Новый язык требует собственного toolchain/runtime, профиля и проверок; готовая поддержка других языков пока не заявляется. CI-публикация обоих образов и полный gRPC/MinIO pipeline ещё не реализованы.

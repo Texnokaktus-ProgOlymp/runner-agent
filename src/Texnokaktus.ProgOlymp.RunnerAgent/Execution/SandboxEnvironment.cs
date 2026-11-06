@@ -5,7 +5,11 @@ using Texnokaktus.ProgOlymp.RunnerAgent.Workspace;
 
 namespace Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 
-internal sealed class SandboxEnvironment(IsolateSandbox sandbox, WorkspaceManager workspaces)
+internal sealed class SandboxEnvironment(
+    IsolateSandbox sandbox,
+    WorkspaceManager workspaces,
+    ILanguageProvider language
+)
     : ISandboxEnvironment, IDisposable
 {
     private static readonly string[] RequiredControllers = ["cpu", "memory", "pids"];
@@ -34,7 +38,7 @@ internal sealed class SandboxEnvironment(IsolateSandbox sandbox, WorkspaceManage
         if (!RequiredControllers.All(controllers.Contains))
             throw new InvalidOperationException("Sandbox requires delegated cpu, memory and pids controllers.");
 
-        if (!File.Exists("/usr/bin/g++"))
+        if (!File.Exists(language.CompilationCommand.Executable))
             throw new InvalidOperationException("Sandbox compiler is missing.");
 
         var cleaned = false;

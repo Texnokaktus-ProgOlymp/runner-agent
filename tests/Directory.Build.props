@@ -10,6 +10,10 @@
         <Using Include="NUnit.Framework" />
     </ItemGroup>
     <ItemGroup>
+        <Content Include="$(MSBuildThisFileDirectory)../docker/cpp23/appsettings.Production.json"
+                 Link="appsettings.Testing.json" CopyToOutputDirectory="PreserveNewest" />
+    </ItemGroup>
+    <ItemGroup>
         <PackageReference Include="NUnit" PrivateAssets="all" />
         <PackageReference Include="NUnit3TestAdapter" PrivateAssets="all" />
         <PackageReference Include="NSubstitute" PrivateAssets="all" />

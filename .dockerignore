@@ -1,0 +1,9 @@
+**
+!artifacts/
+!artifacts/host/
+!artifacts/host/**
+!scripts/
+!scripts/sandbox-environment.sh
+!scripts/entrypoint.sh
+!docker/
+!docker/**

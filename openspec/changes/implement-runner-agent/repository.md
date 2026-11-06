@@ -1,6 +1,6 @@
 # Структура репозитория и сборка
 
-Статус: реализация MVP начата 5 ноября 2026 года. Созданы host, `.Tests`, `.IntegrationTests` для entry point/HTTP pipeline, MSBuild/CPM, tool manifest, smoke и базовый workflow; production Dockerfile, API и storage остаются планом; локальный sandbox реализован как экспериментальный прототип. Требования MVP и платформа linux/amd64 сохраняются. Версии и проверки каркаса приведены ниже и в корневом README.
+Статус: реализация MVP начата 5 ноября 2026 года. Созданы host, `.Tests`, `.IntegrationTests` для entry point/HTTP pipeline, MSBuild/CPM, tool manifest, smoke и базовый workflow; базовый и производный C++ Dockerfile созданы, API и storage остаются планом; локальный sandbox реализован как экспериментальный прототип. Требования MVP и платформа linux/amd64 сохраняются. Версии и проверки каркаса приведены ниже и в корневом README.
 
 ## Фактический каркас
 
@@ -10,7 +10,7 @@ SDK 10.0.403/`latestPatch` без preview; `net10.0`, C# 14, nullable/implicit u
 
 Базовый workflow уже существует: push master, ubuntu-24.04, checkout 4.2.2, setup-dotnet 4.3.1, upload-artifact 4.6.2. Проверяет Release build, NUnit/MTP с TRX/Cobertura и `scripts/smoke.sh`, сохраняет доступные отчёты даже при падении, публикует coverage summary, retention 3 дня. Информационный AOT job сохраняет лог и не блокирует JIT. GitHub CI/AOT ещё не запускались; origin остаётся Gitea до переноса пользователем. Production Docker/integration/publishing jobs не добавлены.
 
-Фактическое дерево: корневые `.slnx`, global.json, props/CPM, NuGet.Config, gitignore; `.config/dotnet-tools.json`; `.github/workflows/dotnet.yml`; `src/Directory.Build.props` и один host с Program/appsettings/Workspace, локальными Execution-контрактами и CppLanguageProvider; `tests/Directory.Build.props` и `.Tests`; `scripts/smoke.sh`. Следующее дерево остаётся целевым и включает ещё не созданные файлы. В `.IntegrationTests` уже находятся `Tools/CustomWebApplicationFactory.cs`, `SetupBase.cs`, `SetupGlobal.cs` и сценарии startup/configuration/HTTP pipeline через настоящий entry point.
+Фактическое дерево: корневые `.slnx`, global.json, props/CPM, NuGet.Config, gitignore; `.config/dotnet-tools.json`; `.github/workflows/dotnet.yml`; `src/Directory.Build.props` и один host с Program/appsettings/Workspace, локальными Execution-контрактами и ConfiguredLanguageProvider; `tests/Directory.Build.props` и `.Tests`; `scripts/smoke.sh`. Следующее дерево остаётся целевым и включает ещё не созданные файлы. В `.IntegrationTests` уже находятся `Tools/CustomWebApplicationFactory.cs`, `SetupBase.cs`, `SetupGlobal.cs` и сценарии startup/configuration/HTTP pipeline через настоящий entry point.
 
 Проверенные команды restore/build/test/publish/run и smoke находятся в [README](../../../README.md#сборка-и-проверки-каркаса). Smoke прошёл на Linux amd64 в runtime-образе `mcr.microsoft.com/dotnet/aspnet:10.0.14`. После обновления WSL Docker Desktop сообщил `CgroupVersion=2`, WSL kernel 6.18.54.1; доступны cpu/memory/pids и требуемые memory/pids-файлы. Полная проверка sandbox выполняется на прототипе, гарантии пока не объявлены подтверждёнными.
 

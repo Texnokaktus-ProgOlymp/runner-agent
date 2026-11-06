@@ -211,7 +211,7 @@ internal sealed class IsolateSandbox
 
             if (reason == TerminationReason.Success && executable is not null && diagnostics.Count == 0)
             {
-                var binary = Path.Combine(Box, "solution");
+                var binary = Path.Combine(Box, Path.GetFileName(executable));
 
                 if ((File.GetAttributes(binary) & FileAttributes.ReparsePoint) != 0)
                     throw new IOException("The compiler output must be a regular file.");

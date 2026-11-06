@@ -1,4 +1,4 @@
-param([string]$Image = 'runner-agent-prototype:local')
+param([string]$Image = 'runner-agent-cpp-23:local', [string]$BaseImage = 'runner-agent-base:local')
 
 $ErrorActionPreference = 'Stop'
 $repoRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot '../..'))
@@ -8,8 +8,12 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'Build failed' }
     dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o artifacts/host
     if ($LASTEXITCODE -ne 0) { throw 'Publish failed' }
-    docker build -f tests/prototype/Dockerfile -t $Image artifacts/host
-    if ($LASTEXITCODE -ne 0) { throw 'Prototype image build failed' }
+    docker build -f docker/base/Dockerfile -t $BaseImage .
+    if ($LASTEXITCODE -ne 0) { throw 'Base image build failed' }
+    docker build -f docker/cpp23/Dockerfile --build-arg "BASE_IMAGE=$BaseImage" -t $Image .
+    if ($LASTEXITCODE -ne 0) { throw 'Compiler image build failed' }
+    docker run --rm --entrypoint sh $BaseImage -c 'test ! -e /usr/bin/g++ && test ! -e /app/appsettings.Production.json && test -x /usr/bin/isolate'
+    if ($LASTEXITCODE -ne 0) { throw 'Base image must contain isolate and agent without a compiler profile' }
     $results = Join-Path $repoRoot 'artifacts/sandbox-results'
     New-Item -ItemType Directory -Force $results | Out-Null
     $command = @'

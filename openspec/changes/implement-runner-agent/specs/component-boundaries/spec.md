@@ -23,7 +23,7 @@ RunnerAgent SHALL сохранять логические границы transpo
 | Orchestration | Единственный слот RunJob, координация storage/workspace/runner, распространение отмены и обязательная очистка до освобождения слота |
 | `Storage` / `IObjectStorage`, `S3ObjectStorage` | Получение и публикация S3-объектов, метаданные хранилища |
 | `Execution` / `ISubmissionRunner`, `IsolateSubmissionRunner` | Локальная компиляция и execution pipeline, преобразование isolate metadata |
-| `Languages` / `ILanguageProvider`, `CppLanguageProvider` | Единственный профиль компилятора экземпляра агента, проверка совместимости задания, toolchain, команды, файлы и окружение |
+| `Languages` / `ILanguageProvider`, `ConfiguredLanguageProvider` | Единственный профиль компилятора экземпляра агента, проверка совместимости задания, toolchain, команды, файлы и окружение |
 | `Workspace` / `WorkspaceManager` | Создание рабочих областей, размещение локальных файлов и очистка |
 
 `IsolateSubmissionRunner` не должен зависеть от gRPC или S3. Он получает локальное задание с одним файлом исходного кода и набором тестов и возвращает локальные результаты и пути артефактов. Финальный внутренний контракт должен явно представлять отдельные compilation/execution limits. Точная сигнатура и распределение операций получения входов между orchestration и runner пока не определены.

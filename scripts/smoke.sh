@@ -39,7 +39,7 @@ if [ "${2:-sandbox}" = configuration ]; then
     set -e
     [ "$code" -ne 0 ]
     ! grep -q 'Application started' "$scratch/sandbox-failure.log"
-    echo 'Configuration smoke passed; incompatible sandbox rejected before serving.'
+    echo 'Configuration smoke passed; an unprepared worker rejected before serving.'
     exit 0
 fi
 env SERVICE_NAME=runner-agent-cpp-23 Runner__WorkspaceRoot="$scratch/workspace" \

@@ -21,13 +21,13 @@ internal sealed class IsolateSubmissionRunner(ILanguageProvider language, Isolat
         cancellationToken.ThrowIfCancellationRequested();
 
         var tests = new List<LocalTestResult>();
-        var executable = Path.Combine(submission.WorkspacePath, "solution");
+        var executable = Path.Combine(submission.WorkspacePath, language.ExecutableFileName);
 
         var compilation = await sandbox.RunAsync(
                               "compilation",
                               language.CompilationCommand,
                               submission.SourcePath,
-                              "source.cpp",
+                              language.SourceFileName,
                               null,
                               Path.Combine(submission.WorkspacePath, "compilation"),
                               submission.CompilationLimits,
@@ -58,7 +58,7 @@ internal sealed class IsolateSubmissionRunner(ILanguageProvider language, Isolat
                               "execution",
                               language.ExecutionCommand,
                               executable,
-                              "solution",
+                              language.ExecutableFileName,
                               test.InputPath,
                               Path.Combine(
                                   submission.WorkspacePath,

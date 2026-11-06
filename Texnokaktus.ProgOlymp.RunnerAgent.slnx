@@ -22,8 +22,15 @@
                 Path="tests/Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests/Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests.csproj" />
     </Folder>
     <Folder Name="/tests/prototype/">
-        <File Path="tests/prototype/Dockerfile" />
         <File Path="tests/prototype/environment.sh" />
         <File Path="tests/prototype/run.ps1" />
+    </Folder>
+    <Folder Name="/docker/">
+        <File Path="docker/base/Dockerfile" />
+        <File Path="docker/cpp23/Dockerfile" />
+        <File Path="docker/cpp23/appsettings.Production.json" />
+        <File Path=".dockerignore" />
+        <File Path="scripts/entrypoint.sh" />
+        <File Path="scripts/sandbox-environment.sh" />
     </Folder>
 </Solution>
