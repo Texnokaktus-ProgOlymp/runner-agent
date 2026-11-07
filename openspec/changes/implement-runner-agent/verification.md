@@ -1,6 +1,8 @@
 # Проверка реализации MVP
 
-Проверка разработчиком 7 ноября 2026 года. Это не независимое архитектурное ревью или black-box QA. Изменение остаётся активным; внешний выпуск текущей версии по ранее принятому решению пользователя не запускается в этой пачке.
+Проверка разработчиком 7 ноября 2026 года. Это не независимое архитектурное ревью или black-box QA. Изменение остаётся активным. Далее приведён исходный локальный отчёт; актуальное продолжение после архитектурного ревью — в architecture-review-fixes.md.
+
+После реализации в отдельной сессии выполнено [архитектурное ревью всего сервиса](architecture-review.md) на revision `4a56727310016bd447f85172355b31df3af75c10`. Повторены 138 существующих тестов; воспроизведены нарушения границы workspace (AR-01, REQ-19) и перечня повторяемых storage-ошибок (AR-02, REQ-17). Исправления и повторная проверка описаны в [отдельном отчёте](architecture-review-fixes.md); black-box приёмка ещё не выполнялась. Пользователь поручил отправить исправления в GitHub и наблюдать за CI. Ниже сохранён исходный отчёт разработчика для 4a56727.
 
 ## Область
 
@@ -30,7 +32,7 @@ Workflow дополнительно проверен actionlint 1.7.7 в одн�
 | AT-11–AT-16, AT-52–AT-62 | SandboxExecutionTests/EnvironmentTests и локальные tests: CPU/wall, group CPU/OOM/pids, оба compiler streams, независимые stdout/stderr, namespace/files/environment/fd/network, readback метрик, потеря metadata, приоритет нарушений, числовые границы |
 | AT-17–AT-19, AT-47, AT-49, AT-63–AT-66 | Production AWSSDK через HTTP fault backend: 403/404 без повторов, 503 ровно три попытки и задержки, оборванный download заново без Range, hash mismatch, стабильные upload bytes/hash и отмена; настоящий MinIO без server region, path-style и два bucket; credentials snapshot/no fallback |
 | AT-22–AT-25, AT-29, AT-50–AT-51, AT-77–AT-78 | E2E: SIGTERM с активным заданием, отмена при остановке, exit 0; SIGKILL/exit 137 и восстановление только собственных остатков; fatal cleanup/exit 1, включая отмену; smoke: idle exit 0 и startup exit 1 |
-| AT-26, AT-32 | Инспекция контракта и зависимостей: единственный unary RPC, нет отдельного чтения/отмены; local runner работает через локальные контракты. Независимое архитектурное ревью не выполнено |
+| AT-26, AT-32 | Инспекция контракта и зависимостей: единственный unary RPC, нет отдельного чтения/отмены; local runner работает через локальные контракты. Последующее архитектурное ревью и его замечания приведены в [отдельном отчёте](architecture-review.md) |
 | AT-27, AT-74–AT-76 | Локально build/JIT image/tests, docker save/load с сохранением IDs, размер архива и release shell fixtures: дата коммита Europe/Moscow, повтор, чужой тег, ошибка image push и tag push. GitHub runner, реальные GHCR права/публикация и конкурирующие workflow ещё не проверены |
 | AT-28 | Base/derived Dockerfile, whitelist build context, отсутствие compiler/profile в базе, отсутствие SDK/NuGet credentials в final image; sandbox environment/proc/fd tests. Полный независимый анализ слоёв не выполнялся |
 | AT-31, AT-38 | Отмена подготовки/компиляции/исполнения/публикации, deadline и независимая cleanup проверяются. Физический разрыв клиентского TCP во время реального исполнения и последующий reuse проверены. Отдельный эксперимент с потерей только финального ответа не выполнен; обнаружение разрыва использует стандартный ServerCallContext.CancellationToken |

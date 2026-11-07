@@ -7,6 +7,10 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Server.Kestrel.Core;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Amazon.Runtime;
+using Amazon.S3;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection.Extensions;
 using Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests.Tools;
 using Texnokaktus.ProgOlymp.RunnerAgent.Storage;
 
@@ -56,7 +60,18 @@ public sealed class StorageTests : SetupBase
     [TestCase(404, 1)]
     [TestCase(403, 1)]
     [TestCase(503, 3)]
-    public async Task UsesExactWireBudgetAndDoesNotExposeSdkMessages(int status, int expected)
+    [TestCase(501, 1)]
+    [TestCase(505, 1)]
+    [TestCase(408, 1)]
+    [TestCase(429, 3)]
+    [TestCase(500, 3)]
+    [TestCase(502, 3)]
+    [TestCase(504, 3)]
+    [TestCase(400, 3, "SlowDown")]
+    [TestCase(400, 1, "Throttling")]
+    [TestCase(400, 1, "ThrottlingException")]
+    [TestCase(400, 1, "RequestTimeout")]
+    public async Task UsesExactWireBudgetAndDoesNotExposeSdkMessages(int status, int expected, string code = "Failure")
     {
         await using var server = await Backend.StartAsync(async (context, _) =>
                                      {
@@ -64,7 +79,7 @@ public sealed class StorageTests : SetupBase
                                          context.Response.ContentType = "application/xml";
 
                                          await context.Response.WriteAsync(
-                                             "<Error><Code>Failure</Code><Message>private-payload</Message></Error>"
+                                             $"<Error><Code>{code}</Code><Message>private-payload</Message></Error>"
                                          );
                                      }
                                  );
@@ -125,6 +140,77 @@ public sealed class StorageTests : SetupBase
         Assert.That(server.Count, Is.EqualTo(1));
         Assert.That(File.Exists(path), Is.False);
         Assert.That(File.Exists(path + ".partial"), Is.False);
+    }
+
+    [Test]
+    public async Task RecoversAfterRealSdkResponseHeaderTimeout()
+    {
+        await using var server = await Backend.StartAsync(async (context, attempt) =>
+                                     {
+                                         if (attempt == 1)
+                                             await Task.Delay(Timeout.InfiniteTimeSpan, context.RequestAborted);
+                                         else await context.Response.Body.WriteAsync(Payload);
+                                     }
+                                 );
+
+        await using var factory = new CustomWebApplicationFactory().WithWebHostBuilder(builder =>
+                                                                                           builder
+                                                                                              .ConfigureTestServices(services =>
+                                                                                                                         services
+                                                                                                                            .Replace(
+                                                                                                                                 ServiceDescriptor
+                                                                                                                                    .Singleton
+                                                                                                                                         <IAmazonS3>(_ =>
+                                                                                                                                                         new
+                                                                                                                                                             AmazonS3Client(
+                                                                                                                                                                 new
+                                                                                                                                                                     BasicAWSCredentials(
+                                                                                                                                                                         "runner-test-access",
+                                                                                                                                                                         "runner-test-secret"
+                                                                                                                                                                     ),
+                                                                                                                                                                 new
+                                                                                                                                                                     AmazonS3Config
+                                                                                                                                                                     {
+                                                                                                                                                                         ServiceURL =
+                                                                                                                                                                             server
+                                                                                                                                                                                .Address,
+                                                                                                                                                                         ForcePathStyle =
+                                                                                                                                                                             true,
+                                                                                                                                                                         AuthenticationRegion =
+                                                                                                                                                                             "us-east-1",
+                                                                                                                                                                         RetryMode =
+                                                                                                                                                                             RequestRetryMode
+                                                                                                                                                                                .Standard,
+                                                                                                                                                                         MaxErrorRetry =
+                                                                                                                                                                             0,
+                                                                                                                                                                         MaxStaleConnectionRetries =
+                                                                                                                                                                             0,
+                                                                                                                                                                         Timeout =
+                                                                                                                                                                             TimeSpan
+                                                                                                                                                                                .FromMilliseconds(
+                                                                                                                                                                                     200
+                                                                                                                                                                                 ),
+                                                                                                                                                                         DisableClockSkewCorrection =
+                                                                                                                                                                             true,
+                                                                                                                                                                         DisableLogging =
+                                                                                                                                                                             true
+                                                                                                                                                                     }
+                                                                                                                                                             )
+                                                                                                                                         )
+                                                                                                                             )
+                                                                                               )
+        );
+
+        using var directory = new TestDirectory();
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var path = Path.Combine(directory.Path, "input");
+
+        await factory.Services.GetRequiredService<IObjectStorage>()
+                     .DownloadAsync(ObjectRole.Data, "input", SHA256.HashData(Payload), path, cancellation.Token);
+
+        Assert.That(await File.ReadAllBytesAsync(path), Is.EqualTo(Payload));
+        Assert.That(server.Count, Is.EqualTo(2));
+        Assert.That(server.Times[1] - server.Times[0], Is.GreaterThanOrEqualTo(TimeSpan.FromMilliseconds(180)));
     }
 
     [Test]

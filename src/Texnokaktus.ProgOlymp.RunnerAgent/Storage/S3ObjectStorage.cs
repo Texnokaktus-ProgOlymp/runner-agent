@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Sockets;
 using System.Security.Cryptography;
 using Amazon.Runtime;
 using Amazon.S3;
@@ -191,6 +192,8 @@ internal sealed class S3ObjectStorage(IAmazonS3 client, S3Options options) : IOb
                                                         or HttpRequestException
                                                         or UriFormatException
                                                         or IOException
+                                                        or TimeoutException
+                                                        or SocketException
                                                         or OperationCanceledException)
             {
                 RunnerTelemetry.StorageErrors.Add(1);
@@ -208,13 +211,35 @@ internal sealed class S3ObjectStorage(IAmazonS3 client, S3Options options) : IOb
         }
     }
 
-    private static bool IsTransient(Exception exception) => exception is not AmazonServiceException service
-                                                         || service.StatusCode is HttpStatusCode.RequestTimeout
-                                                                               or HttpStatusCode.TooManyRequests
-                                                         || (int)service.StatusCode >= 500
-                                                         || service.StatusCode == 0
-                                                         || service.ErrorCode is "SlowDown"
-                                                                              or "Throttling"
-                                                                              or "ThrottlingException"
-                                                                              or "RequestTimeout";
+    private static bool IsTransient(Exception exception) => exception switch
+    {
+        AmazonServiceException service when service.ErrorCode == "SlowDown"  => true,
+        AmazonServiceException service when service.StatusCode != 0          => RetryStatus(service.StatusCode),
+        HttpRequestException { StatusCode: { } status }                      => RetryStatus(status),
+        TimeoutException                                                     => true,
+        HttpIOException { HttpRequestError: HttpRequestError.ResponseEnded } => true,
+        HttpIOException                                                      => false,
+        HttpRequestException request when request.HttpRequestError is not (HttpRequestError.Unknown
+                                                                        or HttpRequestError.ConnectionError
+                                                                        or HttpRequestError.ResponseEnded) => false,
+        SocketException socket => socket.SocketErrorCode is SocketError.ConnectionReset
+                                                         or SocketError.ConnectionAborted
+                                                         or SocketError.NetworkReset
+                                                         or SocketError.TimedOut
+                                                         or SocketError.Shutdown
+                                                         or SocketError.NotConnected,
+        AmazonServiceException
+         or AmazonClientException
+         or IOException
+         or HttpRequestException
+         or OperationCanceledException =>
+            exception.InnerException is not null && IsTransient(exception.InnerException),
+        _ => false
+    };
+
+    private static bool RetryStatus(HttpStatusCode status) => status is HttpStatusCode.TooManyRequests
+                                                                     or HttpStatusCode.InternalServerError
+                                                                     or HttpStatusCode.BadGateway
+                                                                     or HttpStatusCode.ServiceUnavailable
+                                                                     or HttpStatusCode.GatewayTimeout;
 }

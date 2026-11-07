@@ -68,7 +68,7 @@ docker build -f docker/cpp23/Dockerfile -t runner-agent-cpp-23:local .
 | AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY | Обязательные credentials только из env |
 | AWS_SESSION_TOKEN | Необязательный session token |
 
-Нет fallback к AWS profiles/metadata. Buckets и права подготавливаются снаружи. Startup не обращается к MinIO. Storage делает максимум три попытки с задержками 200/500 мс для временных ошибок; встроенные SDK retries отключены. Hash mismatch, 403/404 и локальные IO-ошибки не повторяются. Каждый повтор download начинается заново в `.partial`, в sandbox попадают только проверенные байты. Артефакты: `{prefix}/compilation/{stdout,stderr}.txt` и `{prefix}/tests/{test_id}/{stdout,stderr}.txt` в data bucket.
+Нет fallback к AWS profiles/metadata. Buckets и права подготавливаются снаружи. Startup не обращается к MinIO. Storage делает максимум три попытки с задержками 200/500 мс только для подтверждённых обрывов соединения/сетевых timeout, HTTP 429/500/502/503/504 и S3 SlowDown; встроенные SDK retries отключены. Hash mismatch, 403/404 и локальные IO-ошибки не повторяются. Каждый повтор download начинается заново в `.partial`, в sandbox попадают только проверенные байты. Артефакты: `{prefix}/compilation/{stdout,stderr}.txt` и `{prefix}/tests/{test_id}/{stdout,stderr}.txt` в data bucket.
 
 ## Ручной запуск
 
@@ -84,7 +84,7 @@ docker kill --signal=TERM runner-agent
 docker wait runner-agent
 ```
 
-Оператор должен дать активному заданию завершиться; обычный короткий timeout `docker stop` может закончиться SIGKILL. После аварии startup удаляет только собственные помеченные workspace в `runner-agent-jobs`, очищает собственный box/cgroup 0 и проверяет среду пробным процессом. Чужие файлы сохраняются. Блокировки workspace и `/run/isolate/runner-agent.lock` исключают двух владельцев. Privileged Docker принят для MVP; дальнейшее направление — dedicated judge VM/host с native isolate.
+Оператор должен дать активному заданию завершиться; обычный короткий timeout `docker stop` может закончиться SIGKILL. Linux workspace сначала канонизируется вместе с родительскими symlink. Пути внутри /usr, /bin, /lib, /lib64 и /var/lib/runner-agent-dev запрещены до probe и открытия API. Привилегированный оператор должен сохранять доверенную mount topology; realpath не обнаруживает bind-mount aliases и последующие изменения mounts. После аварии startup удаляет только собственные помеченные workspace в `runner-agent-jobs`, очищает собственный box/cgroup 0 и проверяет среду пробным процессом. Чужие файлы сохраняются. Блокировки workspace и `/run/isolate/runner-agent.lock` исключают двух владельцев. Privileged Docker принят для MVP; дальнейшее направление — dedicated judge VM/host с native isolate.
 
 ## Наблюдаемость и CI
 

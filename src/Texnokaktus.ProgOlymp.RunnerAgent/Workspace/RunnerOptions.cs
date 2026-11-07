@@ -11,11 +11,13 @@ internal sealed class RunnerOptions
 
         WorkspaceRoot = Path.TrimEndingDirectorySeparator(Path.GetFullPath(WorkspaceRoot));
 
-        if (string.Equals(WorkspaceRoot, Path.GetPathRoot(WorkspaceRoot), StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Runner:WorkspaceRoot must not be a filesystem root.");
-
         if (!Directory.Exists(WorkspaceRoot))
             throw new InvalidOperationException("Runner:WorkspaceRoot must be an existing directory.");
+
+        if (OperatingSystem.IsLinux()) WorkspaceRoot = SandboxWorkspacePath.Validate(WorkspaceRoot);
+
+        if (string.Equals(WorkspaceRoot, Path.GetPathRoot(WorkspaceRoot), StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Runner:WorkspaceRoot must not be a filesystem root.");
 
         // Check local access without creating a job workspace or cleaning existing contents.
         var probe = Path.Combine(WorkspaceRoot, $".runner-agent-probe-{Guid.NewGuid():N}");
