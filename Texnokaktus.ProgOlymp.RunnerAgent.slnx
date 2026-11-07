@@ -24,6 +24,9 @@
     <Folder Name="/tests/prototype/">
         <File Path="tests/prototype/environment.sh" />
         <File Path="tests/prototype/run.ps1" />
+        <File Path="tests/prototype/run-storage.ps1" />
+        <File Path="tests/prototype/run-e2e.ps1" />
+        <File Path="tests/prototype/check-release.sh" />
     </Folder>
     <Folder Name="/docker/">
         <File Path="docker/base/Dockerfile" />
@@ -32,5 +35,7 @@
         <File Path=".dockerignore" />
         <File Path="scripts/entrypoint.sh" />
         <File Path="scripts/sandbox-environment.sh" />
+        <File Path="scripts/release-version.sh" />
+        <File Path="scripts/publish-images.sh" />
     </Folder>
 </Solution>

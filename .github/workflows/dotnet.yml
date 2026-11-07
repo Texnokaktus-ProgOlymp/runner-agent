@@ -15,6 +15,9 @@ env:
 jobs:
     build:
         runs-on: ubuntu-24.04
+        outputs:
+            version: ${{ steps.version.outputs.version }}
+            images-artifact: ${{ steps.images.outputs.artifact-id }}
         concurrency:
             group: checks-${{ github.ref }}
             cancel-in-progress: true
@@ -32,11 +35,46 @@ jobs:
             -   name: Build
                 run: dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
             -   name: Test
-                run: dotnet test --solution Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-build --filter "TestCategory!=Sandbox" --coverage --coverage-output-format cobertura --report-trx --results-directory artifacts/test-results
+                run: dotnet test --solution Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-build --filter "TestCategory!=Sandbox&TestCategory!=MinIO&TestCategory!=EndToEnd" --coverage --coverage-output-format cobertura --report-trx --results-directory artifacts/test-results
             -   name: Smoke real process
                 run: |
                     dotnet publish src/Texnokaktus.ProgOlymp.RunnerAgent -c Release --no-restore -o artifacts/host
                     sh scripts/smoke.sh artifacts/host/Texnokaktus.ProgOlymp.RunnerAgent.dll configuration
+            -   name: Docker prerequisites
+                run: |
+                    test "$(docker info --format '{{.CgroupVersion}}')" = 2
+                    docker run --rm --privileged --cgroupns=private ubuntu:24.04 sh -c 'test -e /sys/fs/cgroup/memory.peak && test -e /sys/fs/cgroup/pids.events && test -w /sys/fs/cgroup/cgroup.subtree_control'
+            -   name: Sandbox checks and production images
+                shell: pwsh
+                run: ./tests/prototype/run.ps1
+            -   name: MinIO checks
+                shell: pwsh
+                run: ./tests/prototype/run-storage.ps1
+            -   name: Public API and lifecycle checks on production image
+                shell: pwsh
+                run: ./tests/prototype/run-e2e.ps1 -SkipBuild
+            -   name: Release version
+                id: version
+                run: echo "version=$(sh scripts/release-version.sh)" >> "$GITHUB_OUTPUT"
+            -   name: Release ordering checks
+                run: sh tests/prototype/check-release.sh
+            -   name: Save checked images
+                run: |
+                    set -o pipefail
+                    docker image inspect runner-agent-base:local runner-agent-cpp-23:local --format '{{.Id}}' > artifacts/images.ids
+                    docker save runner-agent-base:local runner-agent-cpp-23:local | gzip -9 > artifacts/images.tar.gz
+                    test "$(stat -c %s artifacts/images.tar.gz)" -le 209715200
+                    sha256sum artifacts/images.tar.gz > artifacts/images.sha256
+            -   uses: actions/upload-artifact@v4.6.2
+                id: images
+                with:
+                    name: checked-images
+                    path: |
+                        artifacts/images.tar.gz
+                        artifacts/images.ids
+                        artifacts/images.sha256
+                    compression-level: 0
+                    retention-days: 1
             -   name: Coverage summary
                 if: ${{ !cancelled() && hashFiles('artifacts/test-results/*.cobertura.xml') != '' }}
                 run: |
@@ -50,8 +88,48 @@ jobs:
                     path: |
                         artifacts/test-results/
                         artifacts/coverage/
+                        artifacts/sandbox-results/
+                        artifacts/minio-tests/
+                        artifacts/e2e-tests/
+                        artifacts/e2e-agent.log
                     if-no-files-found: warn
                     retention-days: 3
+
+    publish:
+        needs: build
+        runs-on: ubuntu-24.04
+        permissions:
+            contents: write
+            packages: write
+            actions: write
+        concurrency:
+            group: publish-${{ github.ref }}
+            cancel-in-progress: false
+        steps:
+            -   uses: actions/checkout@v4.2.2
+            -   uses: actions/download-artifact@v4.3.0
+                with:
+                    name: checked-images
+                    path: artifacts
+            -   name: Load checked images without rebuilding
+                run: |
+                    sha256sum -c artifacts/images.sha256
+                    gunzip -c artifacts/images.tar.gz | docker load
+                    docker image inspect runner-agent-base:local runner-agent-cpp-23:local --format '{{.Id}}' > artifacts/loaded.ids
+                    diff artifacts/images.ids artifacts/loaded.ids
+            -   name: Publish images then tag commit
+                env:
+                    GH_TOKEN: ${{ github.token }}
+                    RELEASE_VERSION: ${{ needs.build.outputs.version }}
+                run: |
+                    printf '%s' "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+                    sh scripts/publish-images.sh
+                    echo "Published ghcr.io/texnokaktus-progolymp/runner-agent-base:$RELEASE_VERSION and ghcr.io/texnokaktus-progolymp/runner-agent-cpp-23:$RELEASE_VERSION" >> "$GITHUB_STEP_SUMMARY"
+            -   name: Remove temporary image archive from Actions storage
+                env:
+                    GH_TOKEN: ${{ github.token }}
+                    ARTIFACT_ID: ${{ needs.build.outputs.images-artifact }}
+                run: gh api --method DELETE "repos/$GITHUB_REPOSITORY/actions/artifacts/$ARTIFACT_ID"
 
     aot:
         name: AOT (informational)

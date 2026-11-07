@@ -1,4 +1,5 @@
 using Texnokaktus.ProgOlymp.RunnerAgent.Languages;
+using Texnokaktus.ProgOlymp.RunnerAgent.Diagnostics;
 
 namespace Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 
@@ -23,7 +24,11 @@ internal sealed class IsolateSubmissionRunner(ILanguageProvider language, Isolat
         var tests = new List<LocalTestResult>();
         var executable = Path.Combine(submission.WorkspacePath, language.ExecutableFileName);
 
-        var compilation = await sandbox.RunAsync(
+        SandboxOutcome compilation;
+
+        using (var compilationActivity = RunnerTelemetry.Activities.StartActivity("runner.compilation"))
+        {
+            compilation = await sandbox.RunAsync(
                               "compilation",
                               language.CompilationCommand,
                               submission.SourcePath,
@@ -34,6 +39,7 @@ internal sealed class IsolateSubmissionRunner(ILanguageProvider language, Isolat
                               executable,
                               cancellationToken
                           );
+        }
 
         var diagnostics = compilation.Diagnostics.ToList();
 
@@ -52,7 +58,16 @@ internal sealed class IsolateSubmissionRunner(ILanguageProvider language, Isolat
 
         foreach (var test in submission.Tests)
         {
+            using var testActivity = RunnerTelemetry.Activities.StartActivity("runner.test");
+            testActivity?.SetTag("test.id", test.TestId);
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (test.PreparationDiagnostics is { Count: > 0 })
+            {
+                tests.Add(new(test.TestId, true, null, test.PreparationDiagnostics));
+
+                continue;
+            }
 
             var outcome = await sandbox.RunAsync(
                               "execution",

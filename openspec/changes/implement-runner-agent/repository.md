@@ -1,6 +1,6 @@
 # Структура репозитория и сборка
 
-Статус: реализация MVP начата 5 ноября 2026 года. Созданы host, `.Tests`, `.IntegrationTests` для entry point/HTTP pipeline, MSBuild/CPM, tool manifest, smoke и базовый workflow; базовый и производный C++ Dockerfile созданы, API и storage остаются планом; локальный sandbox реализован как экспериментальный прототип. Требования MVP и платформа linux/amd64 сохраняются. Версии и проверки каркаса приведены ниже и в корневом README.
+Статус: приложение MVP реализовано и проверяется локально. Внешний GitHub/GHCR выпуск и независимая приёмка ещё не выполнены. Требования MVP и платформа linux/amd64 сохраняются.
 
 ## Фактический каркас
 
@@ -8,14 +8,9 @@ SDK 10.0.403/`latestPatch` без preview; `net10.0`, C# 14, nullable/implicit u
 
 `NuGet.Config` фиксирует package source mapping: `Texnokaktus.ProgOlymp.*` — GitHub Packages, остальные — nuget.org; аудит — nuget.org. При чистом cache нужны credentials чтения двух GitHub Packages, передаваемые через `NuGetPackageSourceCredentials_github` или пользовательскую конфигурацию NuGet. Workflow использует встроенный `GITHUB_TOKEN`, которому репозиторий должен иметь read-доступ к этим пакетам. Credentials не сохраняются в репозитории и доступны только restore/publish шагу.
 
-Базовый workflow уже существует: push master, ubuntu-24.04, checkout 4.2.2, setup-dotnet 4.3.1, upload-artifact 4.6.2. Проверяет Release build, NUnit/MTP с TRX/Cobertura и `scripts/smoke.sh`, сохраняет доступные отчёты даже при падении, публикует coverage summary, retention 3 дня. Информационный AOT job сохраняет лог и не блокирует JIT. GitHub CI/AOT ещё не запускались; origin остаётся Gitea до переноса пользователем. Production Docker/integration/publishing jobs не добавлены.
+Реализованы Release/tests/smoke, Docker/MinIO/E2E и публикация проверенных образов без пересборки. Детали workflow и retention приведены в последнем разделе; реальный внешний запуск текущих изменений ещё не выполнен. Локальная AOT публикация со всеми зависимостями успешна с warnings; production остаётся JIT.
 
-Фактическое дерево: корневые `.slnx`, global.json, props/CPM, NuGet.Config, gitignore; `.config/dotnet-tools.json`; `.github/workflows/dotnet.yml`; `src/Directory.Build.props` и один host с Program/appsettings/Workspace, локальными Execution-контрактами и ConfiguredLanguageProvider; `tests/Directory.Build.props` и `.Tests`; `scripts/smoke.sh`. Следующее дерево остаётся целевым и включает ещё не созданные файлы. В `.IntegrationTests` уже находятся `Tools/CustomWebApplicationFactory.cs`, `SetupBase.cs`, `SetupGlobal.cs` и сценарии startup/configuration/HTTP pipeline через настоящий entry point.
-
-Проверенные команды restore/build/test/publish/run и smoke находятся в [README](../../../README.md#сборка-и-проверки-каркаса). Smoke прошёл на Linux amd64 в runtime-образе `mcr.microsoft.com/dotnet/aspnet:10.0.14`. После обновления WSL Docker Desktop сообщил `CgroupVersion=2`, WSL kernel 6.18.54.1; доступны cpu/memory/pids и требуемые memory/pids-файлы. Полная проверка sandbox выполняется на прототипе, гарантии пока не объявлены подтверждёнными.
-
-Сводные требования MVP и критерии приёмки находятся в [технической спецификации](./README.md). Ещё не согласованные детали этого документа сохраняют статус предложений.
-
+Фактическое дерево включает один host и два тестовых проекта, базовый/языковой Dockerfile и тестовые drivers. Проверенные команды находятся в [README](../../../README.md#сборка-и-проверки), требования — в [OpenSpec](./README.md). Docker Desktop использует cgroups v2; обязательные контроллеры и интерфейсы подтверждены реальными sandbox-тестами.
 ## Согласованные требования
 
 - README с кратким описанием функционала, API, сборки, тестирования и деплоя.
@@ -29,7 +24,7 @@ SDK 10.0.403/`latestPatch` без preview; `net10.0`, C# 14, nullable/implicit u
 - Версия образа — `YYYY.M.D.<run_number>`; для выбора образа при деплое достаточно тега версии.
 - Автоматический деплой не планируется. Pipeline завершается публикацией в GHCR и фиксацией выпуска Git-тегом.
 
-## Предлагаемое дерево
+## Структура решения
 
 ```text
 /
@@ -58,9 +53,9 @@ SDK 10.0.403/`latestPatch` без preview; `net10.0`, C# 14, nullable/implicit u
 │       ├── Texnokaktus.ProgOlymp.RunnerAgent.csproj
 │       ├── Program.cs
 │       ├── appsettings.json
-│       ├── Dockerfile
+│       ├── Diagnostics/
 │       ├── Protos/
-│       ├── Grpc/
+│       ├── Api/
 │       ├── Storage/
 │       ├── Execution/
 │       ├── Languages/
@@ -71,12 +66,12 @@ SDK 10.0.403/`latestPatch` без preview; `net10.0`, C# 14, nullable/implicit u
     │   └── Texnokaktus.ProgOlymp.RunnerAgent.Tests.csproj
     └── Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests/
         ├── Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests.csproj
-        └── Fixtures/
+        └── Tools/
 ```
 
-В дерево включены будущие файлы. Не создаём пустые `.csproj`, фиктивные тесты или workflow с заведомо несуществующими входами на стадии проектирования.
+Dockerfile находятся в docker/base и docker/cpp23; Jobs и Diagnostics дополняют показанные каталоги одного production-проекта. Пустые проекты не создаются.
 
-Для MVP согласован один production-проект: Grpc/Storage/Execution/Languages/Workspace остаются каталогами и логическими границами внутри него. Отдельные библиотеки на первом этапе не выделяются. Согласованы два тестовых проекта: `.Tests` и `.IntegrationTests`, с назначением ниже. Выделение библиотек возможно при появлении самостоятельных потребителей или реальной необходимости ограничить зависимости. Solution folders `src` и `tests` остаются предлагаемой организацией `.slnx`.
+Для MVP согласован один production-проект: Api/Jobs/Storage/Execution/Languages/Workspace/Diagnostics/Protos остаются каталогами и логическими границами внутри него. Отдельные библиотеки на первом этапе не выделяются. Согласованы два тестовых проекта: `.Tests` и `.IntegrationTests`, с назначением ниже. Выделение библиотек возможно при появлении самостоятельных потребителей или реальной необходимости ограничить зависимости. Solution folders src и tests реализованы в .slnx.
 
 Проект `.Tests` проверяет локальную логику без Docker/S3/isolate. `.IntegrationTests` проверяет реальные границы: gRPC, storage, isolate, разделение compilation/execution, лимиты и очистку. Оба проекта используют NUnit на Microsoft.Testing.Platform. Интеграционные fixtures используют временные данные и тестовые credentials; для sandbox сохраняется запрет на сеть и credentials.
 
@@ -187,7 +182,7 @@ MSBuild автоматически находит только ближайши�
 
 Общие зависимости тестов: `NUnit`, `NUnit3TestAdapter`, `NSubstitute`, `Microsoft.Testing.Extensions.CodeCoverage` и `Microsoft.Testing.Extensions.TrxReport`.
 
-Пример формы общего объявления, без пока не выбранных версий:
+Форма общего объявления; фактические версии находятся в Directory.Packages.props:
 
 ```xml
 <ItemGroup>
@@ -223,12 +218,9 @@ MSBuild автоматически находит только ближайши�
 
 ## Docker
 
-Dockerfile располагается рядом с production `.csproj`, а build context — корень репозитория. Это даёт сборке доступ к `global.json`, общим props и CPM. Файлы, влияющие на restore, копируются до исходного кода для эффективного кэширования. `.dockerignore` исключает `.git`, локальные secrets, `bin/obj`, TestResults и coverage reports, сохраняя необходимые build inputs.
+Dockerfile находятся в docker/base и docker/cpp23. Агент публикуется SDK вне Docker; build context допускает только artifacts/host, Docker-конфигурацию и bootstrap. База multi-stage собирает pinned isolate отдельно, final содержит Ubuntu/.NET runtime/isolate/agent без SDK и компилятора. Производный образ добавляет g++ 13.3.0 и фиксированный профиль. Мастер задаёт только язык/версию стандарта, без команд и compiler version.
 
-Планируется multi-stage build: SDK-стадия публикует агента, финальная Linux-стадия содержит agent + isolate + g++/runtime libraries для выбранного C++23. Конкретная версия g++ ещё выбирается как внутренняя деталь образа. Мастер не должен знать или передавать её; отдельного поля версии компилятора в контракте задания нет. Для JIT MVP ей также нужен .NET runtime; целевой AOT-образ собирается после проверки совместимости. Типовой минимальный образ для обычного .NET web service здесь недостаточен без isolate и toolchain.
-
-Секреты NuGet при реальной необходимости передаются через BuildKit secret mounts. Ни токены registry, ни S3 credentials не записываются в Dockerfile, build args или слои образа. Runtime credentials задаются при развёртывании агента.
-
+NuGet credentials доступны restore/publish на host/CI и не входят в Docker context. Registry token и S3 credentials не передаются в build args или слои. Runtime credentials задаются env при запуске.
 Для MVP выбран долгоживущий агент с единственным RunJob: контейнер используется для последовательных заданий, слот занят до завершения обработчика и очистки. Отмена RPC останавливает текущую песочницу и storage, после успешной очистки разрешает следующий вызов. Штатная остановка позволяет активному вызову закончить набор и ответ; отдельного ожидания чтения результата нет. Host/container должны позволять завершить обработку и очистку. Автоматический деплой не планируется.
 
 ## GitHub Actions
@@ -275,47 +267,16 @@ Publishing job не запускается при пропущенных или 
 
 Pipeline выпуска сначала публикует образ в GHCR, затем создаёт Git-тег с префиксом `v` для истории по согласованным правилам повторов. Автоматический деплой не планируется; развёртывание на judge-host выполняется вручную.
 
-## Технические задачи создания каркаса
+## Реализованные команды и ручной деплой
 
-Каркас и минимальный локальный прототип создаются без ожидания готовой реализации `.proto` и lifecycle; требования к ним уже согласованы. Проверка isolate/cgroups проводится на прототипе и не является предварительным условием создания `.slnx` и тестовой инфраструктуры. Этапы и критерии готовности приведены в Implementation Sequence в design.md [спецификации](./README.md).
+Актуальные restore/build/test/publish/Docker команды находятся в [README](../../../README.md#сборка-и-проверки). Выполнены локальные .NET/NUnit, SDK HTTP fault tests, MinIO и production gRPC/S3 проверки в privileged Linux amd64 Docker с cgroups v2. Тестовые fixtures не используют production secrets.
 
-Декомпозиция этапа 1 в design.md декомпозирует независимый каркас на задачи 1.1–1.6. `.IntegrationTests` добавляется с первым реальным интеграционным сценарием: согласованное дерево описывает целевой состав и не требует пустого проекта заранее. Базовый CI сначала проверяет каркас без Docker и публикации; Docker/integration и GHCR добавляются позже с сохранением обязательных проверок перед выпуском. Проверки каркаса выполняются без credentials публикации; integration использует тестовое окружение без production secrets.
+Физические Dockerfile расположены в docker/base и docker/cpp23; код — в одном production-проекте, каталоги Api, Jobs, Protos, Diagnostics, Storage, Execution, Languages, Workspace. IntegrationTests содержит Tools/CustomWebApplicationFactory, SetupBase/SetupGlobal и сценарии реальных внешних границ. Категории Sandbox, MinIO, EndToEnd требуют соответствующей среды; обычный прогон явно исключает их.
 
-Для каркаса нужны точный SDK patch, используемые зависимости, базовая конфигурация/platform, тесты и информационный AOT check. Затем локальный compilation/execution прототип позволяет проверить Linux base image, версии isolate/g++, возможности cgroups и выбранный runner. Сквозная интеграция и поставка подключаются после готовности соответствующих компонентов; уже принятые branch/image/tag/lifecycle решения повторно не согласуются.
+Workflow .github/workflows/dotnet.yml выполняет Release/tests/smoke и Docker-наборы, передаёт оба проверенных образа через docker save/gzip/load, проверяет image IDs. Publish без пересборки отправляет ghcr.io/texnokaktus-progolymp/runner-agent-base и runner-agent-cpp-23, затем создаёт Git-тег версии. Конфликт чужого тега обнаруживается до registry mutations. Начатый publish не отменяется новым push, проверки отменяемы. Shell fixtures проверяют дату коммита Europe/Moscow, повтор, конфликт и ошибку registry без внешней публикации.
 
-- Уточнить оставшиеся детали каркаса и fixtures; один production-проект, два тестовых проекта, `net10.0`/C# 14, nullable/implicit usings, CPM без плавающих версий и `linux/amd64` уже согласованы.
-- Выбрать SDK patch, версии packages/tools/actions и Linux base image.
-- Для настройки CI использовать GitHub origin после переноса пользователем; Gitea-зеркало не относится к workflow. Правила Git-тегов, имя образа, runner `ubuntu-24.04`, ветка `master`, отсутствие pull request и граница отмены проверок/публикации согласованы.
-- Проверить доступность нужной конфигурации isolate/cgroups на выбранном CI runner и определить fixtures интеграционных тестов.
-- Оформить wire-контракт единственного RunJob, занятость, отмену и независимую очистку для согласованного долгоживущего агента. Подробности — в [архитектуре](../../../ARCHITECTURE.md).
-- Реализовать информационный AOT check; не блокировать JIT-выпуск его неуспехом. Проверить полный integration-набор, включая platform/OpenTelemetry, перед переходом production на AOT.
+Архив ограничен 200 МиБ (локально около 174 МиБ), хранится 1 день, удаляется из Actions после успешной публикации. Отчёты хранятся 3 дня. При сбое load/publish архив остаётся до retention для диагностики и повторного запуска publish. Общая свободная квота организации не проверена: перед первым workflow оператор должен обеспечить доступный бесплатный бюджет. Две текущие копии архива занимают около 349 МиБ без отчётов; неограниченное число неудачных выпусков не обещается.
 
-Согласование требований MVP завершено. Перечисленные технические задачи разработчик выполняет самостоятельно при создании реальных `.slnx`, props, проектов, Dockerfile и workflow вместе с проверяемым минимальным приложением. Версии и инженерные настройки выбираются и проверяются без изменения требований, новых пользовательских лимитов или платных сервисов; существенные отклонения обсуждаются. README обновляется одновременно: планируемые команды заменяются проверенными инструкциями.
+Информационная AOT job публикует тот же production-проект со всеми зависимостями, сохраняет warnings/log и не блокирует JIT. Локальная linux-x64 AOT сборка на SDK 10.0.403 завершилась с exit 0 и trimming/AOT warnings; полноценный запуск AOT через integration-набор не выполнялся. Production остаётся JIT.
 
-
-## Планируемые команды и ручной деплой
-
-После создания проектов SDK и тестовая платформа Microsoft.Testing.Platform будут выбираться через `global.json`. Тесты пишутся на NUnit. Планируемая последовательность из корня репозитория:
-
-```sh
-dotnet tool restore
-dotnet restore Texnokaktus.ProgOlymp.RunnerAgent.slnx
-dotnet build Texnokaktus.ProgOlymp.RunnerAgent.slnx -c Release --no-restore
-dotnet test --project tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests/Texnokaktus.ProgOlymp.RunnerAgent.Tests.csproj -c Release --no-build --filter "TestCategory!=Sandbox" --coverage --coverage-output-format cobertura --report-trx
-docker build -f src/Texnokaktus.ProgOlymp.RunnerAgent/Dockerfile -t runner-agent:local .
-```
-
-Docker-команда и интеграционный этап ниже описывают будущий порядок. Restore/build и NUnit/MTP уже работают; актуальные команды с путями отчётов приведены в корневом README. Unit-тесты не требуют isolate. Integration-тесты будут проверять собранный образ в Linux-среде с Docker, privileged containers и подходящей конфигурацией cgroups. Способ передачи образа и настройки тестового окружения будут добавлены вместе с тестовыми fixtures.
-
-
-Планируемый порядок ручного деплоя MVP:
-
-1. Выбрать проверенный образ в GHCR по тегу версии, подготовить Linux judge-host и при необходимости доступ на чтение registry.
-2. Подготовить конфигурацию gRPC/S3, credentials только для агента и локальную рабочую область.
-3. Запустить образ с долгоживущим агентом как privileged Docker-контейнер с согласованными mounts/cgroup-настройками и ограничениями host/container.
-4. Проверить доступность агента, отправить контрольное C++-задание с набором тестов и получить итоговый результат в ответе того же RunJob.
-
-Endpoint агента по умолчанию — `0.0.0.0:8080` внутри контейнера. Имена переменных конфигурации, публикация порта на host и команда запуска будут зафиксированы после спецификации окружения. Автоматический деплой не планируется; pipeline завершается публикацией в GHCR и фиксацией выпуска Git-тегом. Целевая более безопасная схема — dedicated Judge VM/host с native isolate.
-
-
-Экспериментальный локальный runner, версии isolate/g++ и команды tests/prototype/run.ps1 описаны в корневом README. Автономный CI использует фильтр TestCategory!=Sandbox; полная категория Sandbox требует подготовленного privileged Docker/cgroups v2 и не заменяется пропусками. Startup-пробник подключён до сервера и проверяется в privileged Docker; Docker/integration CI остаётся следующим этапом.
+Ручной запуск образа с --privileged --cgroupns=private, S3 env и volume workspace описан в README. Внешний GitHub/GHCR выпуск текущей версии и деплой опубликованного тега ещё не выполнялись. Пользователь самостоятельно меняет origin и настраивает Gitea-зеркало; workflow не зависит от зеркала.

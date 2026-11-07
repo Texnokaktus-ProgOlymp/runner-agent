@@ -23,8 +23,8 @@ restricted_init = 1
 CONFIG
 isolate --check-config
 mkdir -p /var/lib/runner-agent-dev
-mknod /var/lib/runner-agent-dev/null c 1 3
-mknod /var/lib/runner-agent-dev/zero c 1 5
-mknod /var/lib/runner-agent-dev/random c 1 8
-mknod /var/lib/runner-agent-dev/urandom c 1 9
+[ -e /var/lib/runner-agent-dev/null ] || mknod /var/lib/runner-agent-dev/null c 1 3
+[ -e /var/lib/runner-agent-dev/zero ] || mknod /var/lib/runner-agent-dev/zero c 1 5
+[ -e /var/lib/runner-agent-dev/random ] || mknod /var/lib/runner-agent-dev/random c 1 8
+[ -e /var/lib/runner-agent-dev/urandom ] || mknod /var/lib/runner-agent-dev/urandom c 1 9
 chmod 666 /var/lib/runner-agent-dev/*

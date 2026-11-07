@@ -2,6 +2,7 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.Globalization;
 using Texnokaktus.ProgOlymp.RunnerAgent.Languages;
+using Texnokaktus.ProgOlymp.RunnerAgent.Diagnostics;
 
 namespace Texnokaktus.ProgOlymp.RunnerAgent.Execution;
 
@@ -23,6 +24,8 @@ internal sealed class IsolateSandbox
         CancellationToken cancellationToken
     )
     {
+        var stageStart = Stopwatch.GetTimestamp();
+
         if (!Volatile.Read(ref _reusable))
             throw new SandboxCleanupException();
 
@@ -323,12 +326,6 @@ internal sealed class IsolateSandbox
             try
             {
                 if (initializationAttempted) KillGroup();
-
-                if (process is not null && started && !process.HasExited)
-                {
-                    Interrupt(process);
-                    await process.WaitForExitAsync(CancellationToken.None);
-                }
             }
             catch (Exception exception) when (exception is IOException
                                                         or UnauthorizedAccessException
@@ -341,11 +338,36 @@ internal sealed class IsolateSandbox
 
             try
             {
+                if (process is not null && started && !process.HasExited)
+                {
+                    Interrupt(process);
+
+                    await process.WaitForExitAsync(CancellationToken.None)
+                                 .WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+                }
+            }
+            catch (Exception exception) when (exception is IOException
+                                                        or InvalidOperationException
+                                                        or Win32Exception
+                                                        or TimeoutException)
+            {
+                reusable = false;
+                diagnostics.Add(new(stage, "sandbox_stop_failed"));
+            }
+
+            try
+            {
                 if (stdoutFile is not null) await stdoutFile.DisposeAsync();
                 if (stderrFile is not null) await stderrFile.DisposeAsync();
 
                 if (stdoutCopy is not null && stderrCopy is not null)
-                    await Task.WhenAll(stdoutCopy, stderrCopy);
+                    await Task.WhenAll(stdoutCopy, stderrCopy)
+                              .WaitAsync(TimeSpan.FromSeconds(10), CancellationToken.None);
+            }
+            catch (TimeoutException)
+            {
+                reusable = false;
+                diagnostics.Add(new(stage, "output_drain_failed"));
             }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
@@ -378,6 +400,15 @@ internal sealed class IsolateSandbox
 
         if (!reusable)
             Volatile.Write(ref _reusable, false);
+
+        RunnerTelemetry.StageDuration.Record(
+            Stopwatch.GetElapsedTime(stageStart).TotalSeconds,
+            new KeyValuePair<string, object?>("stage", stage),
+            new KeyValuePair<string, object?>(
+                "outcome",
+                cancellationToken.IsCancellationRequested ? "canceled" : reason?.ToString() ?? "infrastructure_error"
+            )
+        );
 
         if (cancellationToken.IsCancellationRequested)
         {

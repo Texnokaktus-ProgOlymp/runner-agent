@@ -702,6 +702,67 @@ public sealed class SandboxExecutionTests : SetupBase
         public void Dispose() => Lease.Dispose();
     }
 
+    [Test]
+    public async Task CancellationDuringCompilationStopsWholeSandbox()
+    {
+        if (!OperatingSystem.IsLinux()) throw new PlatformNotSupportedException();
+
+        const string compiler = "/usr/bin/g++";
+        const string saved = "/usr/bin/g++.cancellation-test";
+        File.Move(compiler, saved);
+
+        try
+        {
+            await File.WriteAllTextAsync(compiler, "#!/bin/sh\nsleep 30\n");
+            File.SetUnixFileMode(compiler, (UnixFileMode)0x1ED);
+            using var workspace = Factory.Services.GetRequiredService<WorkspaceManager>().Create(135);
+            using var cancellation = new CancellationTokenSource();
+
+            var task = Runner.RunAsync(
+                CreateSubmission(workspace, "int main(){}", ExecutionLimits),
+                cancellation.Token
+            );
+
+            try
+            {
+                var timeout = Stopwatch.StartNew();
+
+                while (!File.Exists("/sys/fs/cgroup/runner-agent-boxes/box-0/cgroup.events")
+                    || !File.ReadAllText("/sys/fs/cgroup/runner-agent-boxes/box-0/cgroup.events")
+                            .Contains("populated 1", StringComparison.Ordinal))
+                {
+                    if (task.IsCompleted || timeout.Elapsed > TimeSpan.FromSeconds(20))
+                        Assert.Fail("Compilation did not start.");
+
+                    await Task.Delay(10);
+                }
+
+                await cancellation.CancelAsync();
+                Assert.ThrowsAsync<OperationCanceledException>(async () => await task);
+                Assert.That(Directory.Exists("/var/lib/isolate/0"), Is.False);
+                Assert.That(Directory.Exists("/sys/fs/cgroup/runner-agent-boxes/box-0"), Is.False);
+                Assert.That(Directory.Exists(Path.Combine(workspace.Path, "tests")), Is.False);
+            }
+            finally
+            {
+                await cancellation.CancelAsync();
+
+                try
+                {
+                    await task;
+                }
+                catch (OperationCanceledException)
+                {
+                }
+            }
+        }
+        finally
+        {
+            File.Delete(compiler);
+            File.Move(saved, compiler);
+        }
+    }
+
     private static async Task<ObservedNamespace> ObserveProcessAsync(string executable, Task job)
     {
         var timeout = Stopwatch.StartNew();

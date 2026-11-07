@@ -3,6 +3,14 @@
         <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     </PropertyGroup>
     <ItemGroup>
+        <PackageReference Include="AWSSDK.S3" />
+        <PackageReference Include="Grpc.AspNetCore" />
+        <PackageReference Include="Grpc.HealthCheck" />
+        <PackageReference Include="Grpc.Tools" PrivateAssets="all" />
+        <PackageReference Include="Google.Protobuf" />
         <PackageReference Include="Texnokaktus.ProgOlymp.Platform" />
+    </ItemGroup>
+    <ItemGroup>
+        <Protobuf Include="Protos/runner.proto" GrpcServices="Both" />
     </ItemGroup>
 </Project>

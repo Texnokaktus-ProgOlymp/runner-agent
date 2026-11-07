@@ -14,6 +14,7 @@ internal sealed class SandboxEnvironment(
 {
     private static readonly string[] RequiredControllers = ["cpu", "memory", "pids"];
     private FileStream? _ownership;
+    private FileStream? _workspaceOwnership;
 
     public async Task InitializeAsync(CancellationToken cancellationToken)
     {
@@ -30,6 +31,9 @@ internal sealed class SandboxEnvironment(
             FileShare.None
         );
 
+        _workspaceOwnership = workspaces.AcquireOwnership();
+        workspaces.CleanupOrphans();
+
         const string root = "/sys/fs/cgroup/runner-agent-boxes";
 
         var controllers = (await File.ReadAllTextAsync(root + "/cgroup.subtree_control", cancellationToken))
@@ -40,6 +44,13 @@ internal sealed class SandboxEnvironment(
 
         if (!File.Exists(language.CompilationCommand.Executable))
             throw new InvalidOperationException("Sandbox compiler is missing.");
+
+        if (Directory.Exists(root + "/box-0"))
+            await File.WriteAllTextAsync(root + "/box-0/cgroup.kill", "1", cancellationToken);
+
+        if (Directory.Exists("/var/lib/isolate/0") || Directory.Exists(root + "/box-0"))
+            if (await IsolateSandbox.ControlAsync("--cleanup", cancellationToken) != 0)
+                throw new SandboxCleanupException();
 
         var cleaned = false;
 
@@ -119,5 +130,9 @@ internal sealed class SandboxEnvironment(
             throw new InvalidOperationException("Sandbox execution probe failed.");
     }
 
-    public void Dispose() => _ownership?.Dispose();
+    public void Dispose()
+    {
+        _workspaceOwnership?.Dispose();
+        _ownership?.Dispose();
+    }
 }

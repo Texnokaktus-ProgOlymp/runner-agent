@@ -8,6 +8,23 @@ namespace Texnokaktus.ProgOlymp.RunnerAgent.IntegrationTests;
 
 public sealed class HostConfigurationTests : SetupBase
 {
+    [Test]
+    public async Task MissingStorageCredentialsRejectsStartupWithoutNetworkAccess()
+    {
+        var secret = Environment.GetEnvironmentVariable("AWS_SECRET_ACCESS_KEY");
+
+        try
+        {
+            Environment.SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", null);
+            await using var factory = new CustomWebApplicationFactory();
+            Assert.That(() => factory.CreateClient(), Throws.InvalidOperationException);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("AWS_SECRET_ACCESS_KEY", secret);
+        }
+    }
+
     [TestCase(null)]
     [TestCase("")]
     [TestCase(" ")]

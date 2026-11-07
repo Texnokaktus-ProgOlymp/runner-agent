@@ -2,6 +2,8 @@
 # Smoke the real Linux process; full mode requires an initialized sandbox.
 set -eu
 ulimit -c 0
+export AWS_ACCESS_KEY_ID=runner-smoke-access AWS_SECRET_ACCESS_KEY=runner-smoke-secret
+unset AWS_SESSION_TOKEN
 dll=$(realpath "${1:?Usage: smoke.sh /path/to/RunnerAgent.dll}")
 scratch=$(mktemp -d)
 child=
@@ -20,9 +22,9 @@ expect_start_failure() {
     "$@" > "$scratch/failure.log" 2>&1
     code=$?
     set -e
-    if [ "$code" -eq 0 ]; then
+    if [ "$code" -ne 1 ]; then
         cat "$scratch/failure.log"
-        echo 'Expected startup failure, got exit 0' >&2
+        echo 'Expected startup failure with exit 1' >&2
         exit 1
     fi
     grep -Eq 'SERVICE_NAME|Runner:WorkspaceRoot' "$scratch/failure.log"
@@ -69,7 +71,7 @@ done
 wait "$child"
 child=
 grep -q '^preserve$' "$scratch/workspace/unrelated.txt"
-[ "$(find "$scratch/workspace" -type f | wc -l)" -eq 1 ]
-[ -z "$(find "$scratch/workspace/runner-agent-jobs" -mindepth 1)" ]
+[ "$(find "$scratch/workspace" -maxdepth 1 -type f | wc -l)" -eq 1 ]
+[ -z "$(find "$scratch/workspace/runner-agent-jobs" -mindepth 1 ! -name .owner)" ]
 [ ! -e "$scratch/missing" ]
 echo 'Smoke passed: startup, invalid configuration, SIGTERM exit 0, existing files preserved.'

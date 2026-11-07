@@ -1,0 +1,65 @@
+syntax = "proto3";
+package texnokaktus.progolymp.runner.v1;
+option csharp_namespace = "Texnokaktus.ProgOlymp.RunnerAgent.Contracts";
+
+service Runner { rpc RunJob(RunJobRequest) returns (RunJobResponse); }
+message ObjectReference { string key = 1; bytes sha256 = 2; }
+message ResourceLimits {
+  int64 cpu_time_ms = 1;
+  int64 wall_time_ms = 2;
+  int64 memory_bytes = 3;
+  int64 stdout_bytes = 4;
+  int64 stderr_bytes = 5;
+  int32 processes = 6;
+}
+message JobTest { int32 test_id = 1; ObjectReference input = 2; }
+message RunJobRequest {
+  int64 job_id = 1;
+  string language = 2;
+  string language_version = 3;
+  ObjectReference source = 4;
+  repeated JobTest tests = 5;
+  string result_prefix = 6;
+  ResourceLimits compilation_limits = 7;
+  ResourceLimits execution_limits = 8;
+}
+enum JobStatus { JOB_STATUS_UNSPECIFIED = 0; JOB_STATUS_COMPLETED = 1; JOB_STATUS_COMPILATION_ERROR = 2; JOB_STATUS_INFRASTRUCTURE_ERROR = 3; }
+enum TestStatus { TEST_STATUS_UNSPECIFIED = 0; TEST_STATUS_COMPLETED = 1; TEST_STATUS_INFRASTRUCTURE_ERROR = 2; }
+enum TerminationReason {
+  TERMINATION_REASON_UNSPECIFIED = 0;
+  TERMINATION_REASON_SUCCESS = 1;
+  TERMINATION_REASON_RUNTIME_ERROR = 2;
+  TERMINATION_REASON_CPU_TIME_LIMIT_EXCEEDED = 3;
+  TERMINATION_REASON_WALL_TIME_LIMIT_EXCEEDED = 4;
+  TERMINATION_REASON_MEMORY_LIMIT_EXCEEDED = 5;
+  TERMINATION_REASON_OUTPUT_LIMIT_EXCEEDED = 6;
+  TERMINATION_REASON_PROCESS_LIMIT_EXCEEDED = 7;
+}
+message Diagnostic { string stage = 1; string code = 2; }
+message StageResult {
+  optional TerminationReason reason = 1;
+  optional int64 cpu_time_ms = 2;
+  optional int64 wall_time_ms = 3;
+  optional int64 peak_memory_bytes = 4;
+  optional int64 applied_memory_limit_bytes = 5;
+  optional int32 exit_code = 6;
+  optional int32 signal = 7;
+  ObjectReference stdout = 8;
+  ObjectReference stderr = 9;
+  repeated Diagnostic diagnostics = 10;
+  repeated TerminationReason violations = 11;
+}
+message TestResult {
+  int32 test_id = 1;
+  TestStatus status = 2;
+  StageResult execution = 3;
+  repeated Diagnostic diagnostics = 4;
+}
+message RunJobResponse {
+  int64 job_id = 1;
+  JobStatus status = 2;
+  StageResult compilation = 3;
+  repeated TestResult tests = 4;
+  repeated Diagnostic diagnostics = 5;
+  string failure_stage = 6;
+}
