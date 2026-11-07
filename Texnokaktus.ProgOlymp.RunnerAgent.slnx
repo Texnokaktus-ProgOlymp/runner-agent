@@ -25,6 +25,7 @@
         <File Path="tests/prototype/environment.sh" />
         <File Path="tests/prototype/run.ps1" />
         <File Path="tests/prototype/run-storage.ps1" />
+        <File Path="tests/prototype/Minio.Dockerfile" />
         <File Path="tests/prototype/run-e2e.ps1" />
         <File Path="tests/prototype/check-release.sh" />
     </Folder>

@@ -27,3 +27,11 @@ Release build: exit 0, warnings/errors 0. Полный обычный прого
 Проверенные локальные images: base `sha256:d1731091e8ed87b856c2c75cee6dad4818526fa30fc914ae1eef463d070ead41`, C++23 `sha256:1c7543a06997a02c8d1aaba947a469712098be399346c4adaf5702f5fe19e674`. Они собраны до коммита из 4a56727 и текущего diff; metadata образа не является доказательством итогового Git SHA. Точный diff digest и revision фиксируются в artifacts/review-fixes/handoff.json.
 
 Пользователь поручил после исправлений отправить всю пачку в GitHub и наблюдать за CI. Прежний отказ от внешнего CI/GHCR больше не применяется к текущей пачке; результаты внешнего workflow будут записаны после его выполнения. Origin и Gitea-зеркало по-прежнему не перенастраиваются автоматически.
+
+## Первый внешний CI и исправление fixture
+
+Запуск [42413419855](https://github.com/Texnokaktus-ProgOlymp/runner-agent/actions/runs/42413419855) на b066ca4 прошёл Release, обычные тесты, Sandbox и Native AOT, но остановился на скачивании прежнего minio/minio из Docker Hub; publish был пропущен. Закреплённый тег Quay также вернул 401. Локальный image cache скрывал эту проблему.
+
+Fixtures теперь собирают tests/prototype/Minio.Dockerfile из официального Linux amd64 binary того же RELEASE.2025-04-22T22-12-26Z в GitHub Releases. SHA-256 53e2a2cb16c5366ea6fbbc479c19ddb4c6a0948273e752f740fb1fbf27bb817c проверяется до исполнения. Перенос на стороннее зеркало и смена storage-контракта не требуются. Проверка завершения docker run предшествует Trim, чтобы ошибка daemon не маскировалась обращением к null.
+
+По указанию пользователя 8 ноября зафиксирована отдельная отложенная работа по замене архивированного MinIO; сейчас выполняется только доведение CI до pass. Конкретный альтернативный storage пока не выбран.

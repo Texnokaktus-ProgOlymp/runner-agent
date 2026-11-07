@@ -18,12 +18,15 @@ try {
         docker build -f docker/cpp23/Dockerfile -t runner-agent-cpp-23:local .
         if ($LASTEXITCODE -ne 0) { throw 'Compiler build failed' }
     }
+    docker build -f "$PSScriptRoot/Minio.Dockerfile" -t runner-agent-minio:local $PSScriptRoot
+    if ($LASTEXITCODE -ne 0) { throw 'MinIO fixture build failed' }
     docker network create $network | Out-Null
     if ($LASTEXITCODE -ne 0) { throw 'Test network failed' }
-    $minio = (docker run -d --network $network --network-alias minio -p '127.0.0.1::9000' `
+    $minioOutput = docker run -d --network $network --network-alias minio -p '127.0.0.1::9000' `
         -e MINIO_ROOT_USER=runner-test-access -e MINIO_ROOT_PASSWORD=runner-test-secret `
-        minio/minio:RELEASE.2025-04-22T22-12-26Z server /data --address ':9000').Trim()
+        runner-agent-minio:local server /data --address ':9000'
     if ($LASTEXITCODE -ne 0) { throw 'MinIO start failed' }
+    $minio = $minioOutput.Trim()
     $env:RUNNER_TEST_MINIO_ENDPOINT = 'http://' + (docker port $minio 9000/tcp).Trim()
     $ready = $false
     $deadline = [DateTime]::UtcNow.AddSeconds(60)
